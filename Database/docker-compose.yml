@@ -1,0 +1,43 @@
+# MedSync CATMS - Database container (owned by Jayalath K.D / Database Layer)
+# Boots MySQL 8.0 and auto-loads every *.sql in this folder in filename order:
+#   01_schema.sql -> 02_constraints.sql -> 03_functions.sql -> 04_procedures.sql
+#   -> 05_triggers.sql -> 06_indexes.sql -> 07_seed.sql -> 08_views.sql
+#
+# Run from inside the Database/ folder:
+#   docker compose up -d            # start; init scripts run on FIRST boot only
+#   docker compose logs -f mysql    # watch the scripts load
+#   docker compose down             # stop (keeps data)
+#   docker compose down -v          # stop AND wipe data -> next 'up' re-runs all scripts
+#
+# Connect:
+#   docker exec -it medsync-mysql mysql -umedsync_app -pmedsync_pass medsync
+
+services:
+  mysql:
+    image: mysql:8.0            # 8.0.x >= 8.0.16, so CHECK constraints are enforced
+    container_name: medsync-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: medsync_root
+      MYSQL_DATABASE: medsync
+      MYSQL_USER: medsync_app
+      MYSQL_PASSWORD: medsync_pass
+    ports:
+      # Host 3307 -> container 3306. Host 3306 is used by the local MySQL
+      # install, so the container is published on 3307 to avoid a clash.
+      # Connect from the host on localhost:3307.
+      - "3307:3306"
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      # Your SQL files -> the auto-init folder (read-only). Only top-level *.sql run.
+      - ./:/docker-entrypoint-initdb.d:ro
+      # Named volume keeps the data between restarts.
+      - medsync_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pmedsync_root"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  medsync_data:
