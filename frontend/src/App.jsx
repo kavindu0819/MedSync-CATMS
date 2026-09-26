@@ -8,7 +8,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { checkBackend, fetchReport } from "./api";
+import { api, checkBackend, fetchReport } from "./api";
+
 import "./App.css";
 
 const reportNames = [
@@ -194,11 +195,22 @@ function FilterBar({ reportName, values, onChange, onApply }) {
 function Overview({ backendStatus, onSelectReport }) {
   const chartRows = demoRows["Branch appointments"];
 
+  const [stats, setStats] = useState({ patients: null, appointments: null });
+
+  useEffect(() => {
+    Promise.all([api.get('/patients'), api.get('/appointments')])
+      .then(([p, a]) => setStats({
+        patients: p.data.count,
+        appointments: a.data.length,
+      }))
+      .catch(() => {});
+  }, []);
+
   return (
     <>
       <section className="summary-grid">
-        <div className="summary-card"><span>Total patients</span><strong>300</strong><small>From the current seed data</small></div>
-        <div className="summary-card"><span>Appointments</span><strong>1,200</strong><small>Across three branches</small></div>
+        <div className="summary-card"><span>Total patients</span><strong>{stats.patients ?? '—'}</strong><small>From the current seed data</small></div>
+        <div className="summary-card"><span>Appointments</span><strong>{stats.appointments?.toLocaleString() ?? '—'}</strong><small>Across three branches</small></div>
         <div className="summary-card"><span>Outstanding</span><strong>LKR 28,450</strong><small>Demo summary until API is ready</small></div>
         <div className="summary-card"><span>Reports</span><strong>5</strong><small>Available report pages</small></div>
       </section>
