@@ -2,8 +2,12 @@ require('dotenv').config();
 const express = require('express');
 const pool = require('./docker_connect'); // Imports your database connection pool
 
+const cors = require('cors');
+
+
 const app = express();
 const PORT = process.env.PORT || 5000;
+app.use(cors());
 
 // Middleware to parse incoming JSON bodies
 app.use(express.json());
