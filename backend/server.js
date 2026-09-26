@@ -220,3 +220,32 @@ app.post('/api/appointments', async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+app.get('/api/reports/summary', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM v_dashboard_summary');
+    res.json(rows[0]);                    // single object, not an array
+  } catch (e) {
+    res.status(500).json({ success: false, error: 'Database query failed' });
+  }
+});
+
+app.get('/api/reports/branch-appointments', async (req, res) => {
+  try {
+    const { branch, date } = req.query;
+    const where = [];
+    const params = [];
+
+    if (branch) { where.push('branch LIKE ?'); params.push(`%${branch}%`); }
+    if (date)   { where.push('date = ?');      params.push(date); }
+
+    const sql = `SELECT * FROM v_branch_appointments
+                 ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+                 ORDER BY date DESC, branch`;
+
+    const [rows] = await pool.query(sql, params);
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ success: false, error: 'Database query failed' });
+  }
+});
