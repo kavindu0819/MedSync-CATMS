@@ -250,3 +250,20 @@ app.get('/api/reports/branch-appointments', async (req, res) => {
     res.status(500).json({ success: false, error: 'Database query failed' });
   }
 });
+
+app.get('/api/reports/branch-summary', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT REPLACE(branch, 'MedSync ', '') AS branch,
+             SUM(completed) AS completed,
+             SUM(scheduled) AS scheduled,
+             SUM(cancelled) AS cancelled
+      FROM v_branch_appointments
+      GROUP BY branch
+      ORDER BY branch`);
+    res.json(rows);
+  } catch (e) {
+    console.error('Error fetching branch summary:', e.message);
+    res.status(500).json({ success: false, error: 'Database query failed' });
+  }
+});

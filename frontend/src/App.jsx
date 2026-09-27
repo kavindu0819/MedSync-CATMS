@@ -6,6 +6,7 @@ import {
   ResponsiveContainer,
   Tooltip,
   XAxis,
+  Legend,
   YAxis,
 } from "recharts";
 import { api, checkBackend, fetchOverviewSummary, fetchReport } from "./api";
@@ -193,7 +194,7 @@ function FilterBar({ reportName, values, onChange, onApply }) {
 }
 
 function Overview({ backendStatus, onSelectReport }) {
-  const chartRows = demoRows["Branch appointments"];
+  const [chartRows, setChartRows] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -227,6 +228,22 @@ function Overview({ backendStatus, onSelectReport }) {
     };
   }, []);
 
+  useEffect(() => {
+    api.get('/reports/branch-summary')
+      .then((res) => {
+        setChartRows(res.data.map((row) => ({
+          branch: row.branch,
+          completed: Number(row.completed),
+          scheduled: Number(row.scheduled),
+          cancelled: Number(row.cancelled),
+        })));
+      })
+      .catch((err) => {
+        console.error('Failed to fetch branch summary:', err);
+        setChartRows(demoRows["Branch appointments"]);
+      });
+  }, []);
+
   return (
     <>
       {error && <div className="notice">{error}</div>}
@@ -252,6 +269,8 @@ function Overview({ backendStatus, onSelectReport }) {
               <XAxis dataKey="branch" /><YAxis /><Tooltip />
               <Bar dataKey="completed" fill="#2563eb" radius={[6, 6, 0, 0]} />
               <Bar dataKey="scheduled" fill="#93c5fd" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="cancelled" fill="#f87171" radius={[6, 6, 0, 0]} />
+              <Legend />
             </BarChart>
           </ResponsiveContainer>
         </div>
