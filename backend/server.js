@@ -226,6 +226,7 @@ app.get('/api/reports/summary', async (req, res) => {
     const [rows] = await pool.query('SELECT * FROM v_dashboard_summary');
     res.json(rows[0]);                    // single object, not an array
   } catch (e) {
+    console.error('Error fetching dashboard summary:', e.message);
     res.status(500).json({ success: false, error: 'Database query failed' });
   }
 });

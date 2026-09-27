@@ -8,7 +8,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { api, checkBackend, fetchReport } from "./api";
+import { api, checkBackend, fetchOverviewSummary, fetchReport } from "./api";
 
 import "./App.css";
 
@@ -194,22 +194,53 @@ function FilterBar({ reportName, values, onChange, onApply }) {
 
 function Overview({ backendStatus, onSelectReport }) {
   const chartRows = demoRows["Branch appointments"];
-
   const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    api.get('/reports/summary')
-      .then(r => setStats(r.data))
-      .catch(() => {});
+    let cancelled = false;
+
+    setLoading(true);
+    setError("");
+
+    fetchOverviewSummary()
+      .then((data) => {
+        if (!cancelled) {
+          setStats(data);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to fetch summary:", err);
+        if (!cancelled) {
+          setError("Summary API not available yet.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
     <>
+      {error && <div className="notice">{error}</div>}
+      {loading && !stats ? <div className="empty-state">Loading overview...</div> : null}
+
       <section className="summary-grid">
         <div className="summary-card"><span>Total patients</span><strong>{stats?.total_patients ?? '—'}</strong><small>From the current seed data</small></div>
         <div className="summary-card"><span>Appointments</span><strong>{stats?.total_appointments?.toLocaleString() ?? '—'}</strong><small>Across three branches</small></div>
-        <div className="summary-card"><span>Outstanding</span><strong>LKR {Number(stats?.outstanding_balance ?? 0).toLocaleString()}</strong><small>Demo summary until API is ready</small></div>
-        <div className="summary-card"><span>Reports</span><strong>5</strong><small>Available report pages</small></div>
+        <div className="summary-card"><span>Total branches</span><strong>{stats?.total_branches ?? '—'}</strong><small>From current branches in the system</small></div>
+        <div className="summary-card"><span>Total doctors</span><strong>{stats?.total_doctors ?? '—'}</strong><small>From the current seed data</small></div>
+        <div className="summary-card"><span>Total billed</span><strong>LKR {Number(stats?.total_billed ?? 0).toLocaleString()}</strong><small>Current billing summary</small></div>
+        <div className="summary-card"><span>Total paid</span><strong>LKR {Number(stats?.total_collected ?? 0).toLocaleString()}</strong><small>Current collection summary</small></div>
+        <div className="summary-card"><span>Outstanding</span><strong>LKR {Number(stats?.outstanding_balance ?? 0).toLocaleString()}</strong><small>Current outstanding balance</small></div>
+        {/* <div className="summary-card"><span>Reports</span><strong>5</strong><small>Available report pages</small></div> */}
       </section>
 
       <section className="overview-grid">
