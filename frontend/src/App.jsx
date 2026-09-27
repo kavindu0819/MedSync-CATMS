@@ -9,7 +9,8 @@ import {
   Legend,
   YAxis,
 } from "recharts";
-import { api, checkBackend, fetchOverviewSummary, fetchReport } from "./api";
+import { api, checkBackend, fetchOverviewSummary, fetchReport,
+         fetchBranches, fetchBranchMonths, fetchBranchAppointments } from "./api";
 
 import "./App.css";
 
@@ -290,6 +291,122 @@ function Overview({ backendStatus, onSelectReport }) {
   );
 }
 
+function monthLabel(month) {
+  const [year, mon] = month.split("-");
+  return new Date(Number(year), Number(mon) - 1)
+    .toLocaleString("en", { month: "long", year: "numeric" });
+}
+
+function BranchAppointmentsReport() {
+  const [branches, setBranches] = useState([]);
+  const [branchId, setBranchId] = useState("");
+  const [months, setMonths] = useState([]);
+  const [month, setMonth] = useState("");
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetchBranches()
+      .then(setBranches)
+      .catch(() => setError("Could not load branches."));
+  }, []);
+
+  useEffect(() => {
+    setMonths([]);
+    if (!branchId) return;
+    fetchBranchMonths(branchId)
+      .then(setMonths)
+      .catch(() => setMonths([]));
+  }, [branchId]);
+
+  useEffect(() => {
+    if (!branchId) {
+      setRows([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+
+    fetchBranchAppointments(branchId, month)
+      .then((data) => { if (!cancelled) setRows(data); })
+      .catch(() => { if (!cancelled) setError("Could not load appointments."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [branchId, month]);
+
+  const chartData = rows.map((r) => ({
+    day: r.date.slice(5),
+    completed: Number(r.completed),
+    scheduled: Number(r.scheduled),
+    cancelled: Number(r.cancelled),
+  }));
+
+
+  return (
+    <section className="panel">
+      <div className="panel-heading">
+        <div><p className="eyebrow">REPORT RESULTS</p><h3>Branch appointments</h3></div>
+      </div>
+
+      <div className="filter-bar">
+        <label>
+          <span>Branch</span>
+          <select
+            value={branchId}
+            onChange={(e) => { setBranchId(e.target.value); setMonth(""); }}
+          >
+            <option value="">Select a branch</option>
+            {branches.map((b) => (
+              <option key={b.branch_id} value={b.branch_id}>{b.name}</option>
+            ))}
+          </select>
+        </label>
+
+        {branchId && (
+          <label>
+            <span>Period</span>
+            <select value={month} onChange={(e) => setMonth(e.target.value)}>
+              <option value="">Last 30 days</option>
+              {months.map((m) => (
+                <option key={m} value={m}>{monthLabel(m)}</option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+
+      {error && <div className="notice">{error}</div>}
+
+      {!branchId ? (
+        <div className="empty-state">Select a branch to see its appointments.</div>
+      ) : loading ? (
+        <div className="empty-state">Loading...</div>
+      ) : (
+        <>
+          <div className="chart-box">
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="day" />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="completed" stackId="a" fill="#2563eb" />
+                <Bar dataKey="scheduled" stackId="a" fill="#93c5fd" />
+                <Bar dataKey="cancelled" stackId="a" fill="#f87171" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <ReportTable rows={rows} />
+        </>
+      )}
+    </section>
+  );
+}
+
 function App() {
   const [activeReport, setActiveReport] = useState("Overview");
   const [rows, setRows] = useState([]);
@@ -308,6 +425,7 @@ function App() {
 
   const loadReport = useCallback(async () => {
     if (activeReport === "Overview") return;
+    if (activeReport === "Branch appointments") return;
 
     setLoading(true);
     setError("");
@@ -359,6 +477,8 @@ function App() {
 
         {activeReport === "Overview" ? (
           <Overview backendStatus={backendStatus} onSelectReport={selectReport} />
+        ) : activeReport === "Branch appointments" ? (
+          <BranchAppointmentsReport />
         ) : (
           <section className="panel report-panel">
             <div className="panel-heading"><div><p className="eyebrow">REPORT RESULTS</p><h3>{activeReport}</h3></div>{usingDemoData && <span className="demo-badge">Demo data</span>}</div>

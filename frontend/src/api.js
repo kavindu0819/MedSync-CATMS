@@ -46,6 +46,24 @@ export async function fetchOverviewSummary() {
   return response.data ?? null;
 }
 
+export async function fetchBranches() {
+  const response = await api.get("/branches");
+  return response.data;
+}
+
+export async function fetchBranchMonths(branchId) {
+  const response = await api.get("/reports/branch-appointments/months", {
+    params: { branchId },
+  });
+  return response.data;
+}
+
+export async function fetchBranchAppointments(branchId, month) {
+  const params = month ? { branchId, month } : { branchId };
+  const response = await api.get("/reports/branch-appointments", { params });
+  return response.data;
+}
+
 export async function checkBackend() {
   // The current backend already has this route in server.js.
   const response = await api.get("/doctors");
