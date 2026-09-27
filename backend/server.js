@@ -220,3 +220,102 @@ app.post('/api/appointments', async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+app.get('/api/reports/summary', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM v_dashboard_summary');
+    res.json(rows[0]);                    // single object, not an array
+  } catch (e) {
+    console.error('Error fetching dashboard summary:', e.message);
+    res.status(500).json({ success: false, error: 'Database query failed' });
+  }
+});
+
+app.get('/api/reports/branch-appointments', async (req, res) => {
+  try {
+    const { branchId, month } = req.query;
+
+    if (!branchId) {
+      return res.status(400).json({ success: false, error: 'branchId is required' });
+    }
+
+    let sql;
+    let params;
+
+    if (month) {
+      if (!/^\d{4}-\d{2}$/.test(month)) {
+        return res.status(400).json({ success: false, error: 'month must look like 2025-01' });
+      }
+      // one calendar month
+      sql = `SELECT date, scheduled, completed, cancelled, appointment_count
+             FROM v_branch_appointments
+             WHERE branch_id = ?
+               AND date >= ?
+               AND date < DATE(?) + INTERVAL 1 MONTH
+             ORDER BY date`;
+      params = [branchId, `${month}-01`, `${month}-01`];
+    } else {
+      // last 30 days, ending at the newest date with data
+      sql = `SELECT date, scheduled, completed, cancelled, appointment_count
+             FROM v_branch_appointments
+             WHERE branch_id = ?
+               AND date > (SELECT MAX(date) FROM v_branch_appointments WHERE branch_id = ?)
+                          - INTERVAL 30 DAY
+             ORDER BY date`;
+      params = [branchId, branchId];
+    }
+
+    const [rows] = await pool.query(sql, params);
+    res.json(rows);
+  } catch (e) {
+    console.error('Error fetching branch appointments:', e.message);
+    res.status(500).json({ success: false, error: 'Database query failed' });
+  }
+});
+
+app.get('/api/reports/branch-summary', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT REPLACE(branch, 'MedSync ', '') AS branch,
+             SUM(completed) AS completed,
+             SUM(scheduled) AS scheduled,
+             SUM(cancelled) AS cancelled
+      FROM v_branch_appointments
+      GROUP BY branch
+      ORDER BY branch`);
+    res.json(rows);
+  } catch (e) {
+    console.error('Error fetching branch summary:', e.message);
+    res.status(500).json({ success: false, error: 'Database query failed' });
+  }
+});
+
+app.get('/api/branches', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT branch_id, name FROM BRANCH ORDER BY name');
+    res.json(rows);
+  } catch (e) {
+    console.error('Error fetching branches:', e.message);
+    res.status(500).json({ success: false, error: 'Database query failed' });
+  }
+});
+
+app.get('/api/reports/branch-appointments/months', async (req, res) => {
+  try {
+    const { branchId } = req.query;
+    if (!branchId) {
+      return res.status(400).json({ success: false, error: 'branchId is required' });
+    }
+    const [rows] = await pool.query(
+      `SELECT DISTINCT DATE_FORMAT(date, '%Y-%m') AS month
+       FROM v_branch_appointments
+       WHERE branch_id = ?
+       ORDER BY month DESC`,
+      [branchId]
+    );
+    res.json(rows.map((r) => r.month));
+  } catch (e) {
+    console.error('Error fetching months:', e.message);
+    res.status(500).json({ success: false, error: 'Database query failed' });
+  }
+});

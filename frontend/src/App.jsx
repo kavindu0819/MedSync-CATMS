@@ -6,9 +6,12 @@ import {
   ResponsiveContainer,
   Tooltip,
   XAxis,
+  Legend,
   YAxis,
 } from "recharts";
-import { checkBackend, fetchReport } from "./api";
+import { api, checkBackend, fetchOverviewSummary, fetchReport,
+         fetchBranches, fetchBranchMonths, fetchBranchAppointments } from "./api";
+
 import "./App.css";
 
 const reportNames = [
@@ -192,15 +195,70 @@ function FilterBar({ reportName, values, onChange, onApply }) {
 }
 
 function Overview({ backendStatus, onSelectReport }) {
-  const chartRows = demoRows["Branch appointments"];
+  const [chartRows, setChartRows] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setLoading(true);
+    setError("");
+
+    fetchOverviewSummary()
+      .then((data) => {
+        if (!cancelled) {
+          setStats(data);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to fetch summary:", err);
+        if (!cancelled) {
+          setError("Summary API not available yet.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    api.get('/reports/branch-summary')
+      .then((res) => {
+        setChartRows(res.data.map((row) => ({
+          branch: row.branch,
+          completed: Number(row.completed),
+          scheduled: Number(row.scheduled),
+          cancelled: Number(row.cancelled),
+        })));
+      })
+      .catch((err) => {
+        console.error('Failed to fetch branch summary:', err);
+        setChartRows(demoRows["Branch appointments"]);
+      });
+  }, []);
 
   return (
     <>
+      {error && <div className="notice">{error}</div>}
+      {loading && !stats ? <div className="empty-state">Loading overview...</div> : null}
+
       <section className="summary-grid">
-        <div className="summary-card"><span>Total patients</span><strong>300</strong><small>From the current seed data</small></div>
-        <div className="summary-card"><span>Appointments</span><strong>1,200</strong><small>Across three branches</small></div>
-        <div className="summary-card"><span>Outstanding</span><strong>LKR 28,450</strong><small>Demo summary until API is ready</small></div>
-        <div className="summary-card"><span>Reports</span><strong>5</strong><small>Available report pages</small></div>
+        <div className="summary-card"><span>Total patients</span><strong>{stats?.total_patients ?? '—'}</strong><small>From the current seed data</small></div>
+        <div className="summary-card"><span>Appointments</span><strong>{stats?.total_appointments?.toLocaleString() ?? '—'}</strong><small>Across three branches</small></div>
+        <div className="summary-card"><span>Total branches</span><strong>{stats?.total_branches ?? '—'}</strong><small>From current branches in the system</small></div>
+        <div className="summary-card"><span>Total doctors</span><strong>{stats?.total_doctors ?? '—'}</strong><small>From the current seed data</small></div>
+        <div className="summary-card"><span>Total billed</span><strong>LKR {Number(stats?.total_billed ?? 0).toLocaleString()}</strong><small>Current billing summary</small></div>
+        <div className="summary-card"><span>Total paid</span><strong>LKR {Number(stats?.total_collected ?? 0).toLocaleString()}</strong><small>Current collection summary</small></div>
+        <div className="summary-card"><span>Outstanding</span><strong>LKR {Number(stats?.outstanding_balance ?? 0).toLocaleString()}</strong><small>Current outstanding balance</small></div>
+        {/* <div className="summary-card"><span>Reports</span><strong>5</strong><small>Available report pages</small></div> */}
       </section>
 
       <section className="overview-grid">
@@ -212,6 +270,8 @@ function Overview({ backendStatus, onSelectReport }) {
               <XAxis dataKey="branch" /><YAxis /><Tooltip />
               <Bar dataKey="completed" fill="#2563eb" radius={[6, 6, 0, 0]} />
               <Bar dataKey="scheduled" fill="#93c5fd" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="cancelled" fill="#f87171" radius={[6, 6, 0, 0]} />
+              <Legend />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -228,6 +288,122 @@ function Overview({ backendStatus, onSelectReport }) {
         </div>
       </section>
     </>
+  );
+}
+
+function monthLabel(month) {
+  const [year, mon] = month.split("-");
+  return new Date(Number(year), Number(mon) - 1)
+    .toLocaleString("en", { month: "long", year: "numeric" });
+}
+
+function BranchAppointmentsReport() {
+  const [branches, setBranches] = useState([]);
+  const [branchId, setBranchId] = useState("");
+  const [months, setMonths] = useState([]);
+  const [month, setMonth] = useState("");
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetchBranches()
+      .then(setBranches)
+      .catch(() => setError("Could not load branches."));
+  }, []);
+
+  useEffect(() => {
+    setMonths([]);
+    if (!branchId) return;
+    fetchBranchMonths(branchId)
+      .then(setMonths)
+      .catch(() => setMonths([]));
+  }, [branchId]);
+
+  useEffect(() => {
+    if (!branchId) {
+      setRows([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+
+    fetchBranchAppointments(branchId, month)
+      .then((data) => { if (!cancelled) setRows(data); })
+      .catch(() => { if (!cancelled) setError("Could not load appointments."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [branchId, month]);
+
+  const chartData = rows.map((r) => ({
+    day: r.date.slice(5),
+    completed: Number(r.completed),
+    scheduled: Number(r.scheduled),
+    cancelled: Number(r.cancelled),
+  }));
+
+
+  return (
+    <section className="panel">
+      <div className="panel-heading">
+        <div><p className="eyebrow">REPORT RESULTS</p><h3>Branch appointments</h3></div>
+      </div>
+
+      <div className="filter-bar">
+        <label>
+          <span>Branch</span>
+          <select
+            value={branchId}
+            onChange={(e) => { setBranchId(e.target.value); setMonth(""); }}
+          >
+            <option value="">Select a branch</option>
+            {branches.map((b) => (
+              <option key={b.branch_id} value={b.branch_id}>{b.name}</option>
+            ))}
+          </select>
+        </label>
+
+        {branchId && (
+          <label>
+            <span>Period</span>
+            <select value={month} onChange={(e) => setMonth(e.target.value)}>
+              <option value="">Last 30 days</option>
+              {months.map((m) => (
+                <option key={m} value={m}>{monthLabel(m)}</option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+
+      {error && <div className="notice">{error}</div>}
+
+      {!branchId ? (
+        <div className="empty-state">Select a branch to see its appointments.</div>
+      ) : loading ? (
+        <div className="empty-state">Loading...</div>
+      ) : (
+        <>
+          <div className="chart-box">
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="day" />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="completed" stackId="a" fill="#2563eb" />
+                <Bar dataKey="scheduled" stackId="a" fill="#93c5fd" />
+                <Bar dataKey="cancelled" stackId="a" fill="#f87171" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <ReportTable rows={rows} />
+        </>
+      )}
+    </section>
   );
 }
 
@@ -249,6 +425,7 @@ function App() {
 
   const loadReport = useCallback(async () => {
     if (activeReport === "Overview") return;
+    if (activeReport === "Branch appointments") return;
 
     setLoading(true);
     setError("");
@@ -300,6 +477,8 @@ function App() {
 
         {activeReport === "Overview" ? (
           <Overview backendStatus={backendStatus} onSelectReport={selectReport} />
+        ) : activeReport === "Branch appointments" ? (
+          <BranchAppointmentsReport />
         ) : (
           <section className="panel report-panel">
             <div className="panel-heading"><div><p className="eyebrow">REPORT RESULTS</p><h3>{activeReport}</h3></div>{usingDemoData && <span className="demo-badge">Demo data</span>}</div>

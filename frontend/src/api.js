@@ -28,6 +28,42 @@ export async function fetchReport(reportName, filters = {}) {
   return response.data;
 }
 
+export async function fetchOverviewSummary() {
+  const response = await api.get("/reports/summary");
+
+  if (Array.isArray(response.data)) {
+    return response.data[0] ?? null;
+  }
+
+  if (response.data && response.data.data && !Array.isArray(response.data.data)) {
+    return response.data.data;
+  }
+
+  if (response.data && response.data.data && Array.isArray(response.data.data)) {
+    return response.data.data[0] ?? null;
+  }
+
+  return response.data ?? null;
+}
+
+export async function fetchBranches() {
+  const response = await api.get("/branches");
+  return response.data;
+}
+
+export async function fetchBranchMonths(branchId) {
+  const response = await api.get("/reports/branch-appointments/months", {
+    params: { branchId },
+  });
+  return response.data;
+}
+
+export async function fetchBranchAppointments(branchId, month) {
+  const params = month ? { branchId, month } : { branchId };
+  const response = await api.get("/reports/branch-appointments", { params });
+  return response.data;
+}
+
 export async function checkBackend() {
   // The current backend already has this route in server.js.
   const response = await api.get("/doctors");
