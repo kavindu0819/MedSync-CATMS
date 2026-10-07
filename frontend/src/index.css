@@ -1,3 +1,17 @@
-/* Global reset. Component styling is in App.css. */
-:root { font-synthesis: none; text-rendering: optimizeLegibility; }
-body { min-width: 320px; }
+@import url('./assets/manrope.css');
+
+:root { font-family: 'Manrope', 'Segoe UI', Arial, sans-serif; color: #142638; background: #087cf0; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; font-weight: 400; }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+body { margin: 0; min-width: 320px; }
+button, input, select { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; }
+button:disabled { cursor: wait; opacity: .65; }
+a { color: inherit; text-decoration: none; }
+button, input, select, a { outline-offset: 5px; }
+:focus-visible { outline: 3px solid #ff975f; }
+img { display: block; max-width: 100%; }
+svg { flex-shrink: 0; }
+::selection { background: #cee4ff; color: #12315a; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
