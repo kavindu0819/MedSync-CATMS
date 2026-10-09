@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { api } from "./api";
 import "./PatientDashboard.css";
+
 
 /* ---------- Sample data (replaced automatically when the API returns rows) ---------- */
 const SAMPLE = {
@@ -72,25 +75,33 @@ function Panel({ id, eyebrow, title, action, children }) {
 }
 
 /* ---------- Page ---------- */
-export default function PatientDashboard({ apiBase = "/api", patientId }) {
+export default function PatientDashboard({ apiBase = "/api", patientId, patientName, onLogout }) {
+  const navigate = useNavigate();
   const [data, setData] = useState(SAMPLE);
   const [active, setActive] = useState("overview");
   const [usingSample, setUsingSample] = useState(true);
 
   // Replace the sample data with real rows when the backend responds.
-  // Adjust the URL and response shape to match your API.
   useEffect(() => {
     if (!patientId) return;
-    const controller = new AbortController();
-    fetch(`${apiBase}/patients/${patientId}/dashboard`, { signal: controller.signal })
-      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
-      .then((json) => {
-        setData({ ...SAMPLE, ...json });
-        setUsingSample(false);
+    let isMounted = true;
+
+    api.get(`/patients/${patientId}/dashboard`)
+      .then((res) => {
+        if (isMounted && res.data) {
+          setData((prev) => ({ ...prev, ...res.data }));
+          setUsingSample(false);
+        }
       })
-      .catch(() => setUsingSample(true)); // keep sample data on failure
-    return () => controller.abort();
-  }, [apiBase, patientId]);
+      .catch((err) => {
+        console.warn("Could not load live patient data, showing demo data:", err.message);
+        if (isMounted) setUsingSample(true);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [patientId]);
 
   const maxVisits = useMemo(
     () => Math.max(1, ...data.visitsPerMonth.map((v) => v.count)),
@@ -137,9 +148,12 @@ export default function PatientDashboard({ apiBase = "/api", patientId }) {
             <div className="eyebrow">MEDSYNC CATMS</div>
             <h1 className="topbar__title">My health overview</h1>
           </div>
-          <div className="user">
-            <div className="user__avatar">{data.patient.name.charAt(0).toUpperCase()}</div>
-            <div className="user__name">{data.patient.name}</div>
+          <div className="pd__user-actions">
+            <div className="user">
+              <div className="user__avatar">{(patientName || data.patient.name).charAt(0).toUpperCase()}</div>
+              <div className="user__name">{patientName || data.patient.name}</div>
+            </div>
+            <button className="pd__logout" type="button" onClick={() => { onLogout(); navigate("/", { replace: true }); }}>Sign out</button>
           </div>
         </header>
 

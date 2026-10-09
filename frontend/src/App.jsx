@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Bar,
   BarChart,
@@ -407,7 +408,8 @@ function BranchAppointmentsReport() {
   );
 }
 
-function App() {
+function App({ user, onLogout }) {
+  const navigate = useNavigate();
   const [activeReport, setActiveReport] = useState("Overview");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -472,7 +474,11 @@ function App() {
       <main className="main-content">
         <header className="topbar">
           <div><p className="eyebrow">MEDSYNC CATMS</p><h2>{activeReport}</h2></div>
-          <div className="user-chip"><span className="user-avatar">S</span><span>Sivakumaran</span></div>
+          <div className="user-chip">
+            <span className="user-avatar">{(user?.name || "Admin").charAt(0).toUpperCase()}</span>
+            <span>{user?.name || "Administrator"}</span>
+            <button className="logout-button" type="button" onClick={() => { onLogout(); navigate("/", { replace: true }); }}>Sign out</button>
+          </div>
         </header>
 
         {activeReport === "Overview" ? (

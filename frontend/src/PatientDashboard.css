@@ -46,6 +46,9 @@
 .pd .user { display: flex; align-items: center; gap: 12px; background: #fff; border-radius: 999px; padding: 10px 22px 10px 12px; box-shadow: 0 4px 16px rgba(18, 33, 63, 0.08); }
 .pd .user__avatar { width: 40px; height: 40px; border-radius: 50%; background: #dbe7ff; color: #1d4ed8; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 .pd .user__name { font-size: 18px; }
+.pd .pd__user-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; }
+.pd .pd__logout { border: 0; border-radius: 10px; padding: 11px 14px; background: #e7efff; color: #1d4ed8; cursor: pointer; font-weight: 600; }
+.pd .pd__logout:hover { background: #dbe7ff; }
 
 .pd .card { background: #fff; border: 0; border-radius: 20px; box-shadow: var(--pd-shadow); }
 

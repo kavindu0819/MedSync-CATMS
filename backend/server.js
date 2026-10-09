@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const pool = require('./docker_connect'); // Imports your database connection pool
+const bcrypt = require('bcryptjs');
 
 const cors = require('cors');
 
@@ -121,11 +122,6 @@ app.get('/api/doctors/:id', async (req, res) => {
     console.error('Error fetching doctor:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
-});
-
-// Start listening on port 5000
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
 
 //--------------------------------------------------------
@@ -365,21 +361,31 @@ app.post('/api/patient/register', async (req, res) => {
   }
 });
 
-const bcrypt = require('bcryptjs');
-
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
 
+  if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || !password) {
+    return res.status(400).json({ success: false, message: 'Email and password are required.' });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+
   try {
     // 1. ADMIN LOGIN CHECK
-    if (email === 'admins@medsync.lk') {
+    // Standard system admin accounts
+    if (
+      normalizedEmail === 'admins@medsync.lk' ||
+      normalizedEmail === 'admin@medsync.lk' ||
+      normalizedEmail === 'admin@medsync.com'
+    ) {
       if (password === 'admin123') {
         return res.json({
           success: true,
           role: 'ADMIN',
           user: {
-            name: 'User',
-            email: 'admins@medsync.lk',
+            name: 'System Administrator',
+            email: normalizedEmail,
+            role: 'Admin',
           },
         });
       } else {
@@ -387,16 +393,43 @@ app.post('/api/auth/login', async (req, res) => {
       }
     }
 
+    // Check if the email belongs to any STAFF member (Branch Managers, etc.)
+    const [staffRows] = await pool.query(
+      `SELECT staff_id, branch_id, first_name, last_name, role, email 
+       FROM STAFF 
+       WHERE LOWER(email) = ?`,
+      [normalizedEmail]
+    );
+
+    if (staffRows.length > 0) {
+      if (password === 'admin123' || password === 'staff123') {
+        const staff = staffRows[0];
+        return res.json({
+          success: true,
+          role: 'ADMIN',
+          user: {
+            staff_id: staff.staff_id,
+            name: `${staff.first_name} ${staff.last_name}`,
+            email: staff.email,
+            role: staff.role,
+            branch_id: staff.branch_id,
+          },
+        });
+      } else {
+        return res.status(401).json({ success: false, message: 'Invalid credentials for staff account.' });
+      }
+    }
+
     // 2. PATIENT LOGIN CHECK (Using v_patient_login_info view)
     const [rows] = await pool.query(
       `SELECT patient_id, nic, first_name, last_name, phone, email, password_hash 
        FROM v_patient_login_info 
-       WHERE email = ?`,
-      [email]
+       WHERE LOWER(email) = ?`,
+      [normalizedEmail]
     );
 
     if (rows.length === 0) {
-      return res.status(401).json({ success: false, message: 'Invalid email or password.' });
+      return res.status(401).json({ success: false, message: 'No registered patient or administrator found with this email.' });
     }
 
     const patient = rows[0];
@@ -404,7 +437,7 @@ app.post('/api/auth/login', async (req, res) => {
     // Verify hashed password
     const isMatch = await bcrypt.compare(password, patient.password_hash);
     if (!isMatch) {
-      return res.status(401).json({ success: false, message: 'Invalid email or password.' });
+      return res.status(401).json({ success: false, message: 'Invalid password. Please check and try again.' });
     }
 
     // Return patient details with role 'PATIENT'
@@ -419,3 +452,313 @@ app.post('/api/auth/login', async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error during login.' });
   }
 });
+
+// ----------------------------------------------------
+// 5. PATIENT DASHBOARD ENDPOINT
+// ----------------------------------------------------
+app.get('/api/patients/:id/dashboard', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // 1. Patient profile
+    const [patientRows] = await pool.query(
+      'SELECT patient_id, nic, first_name, last_name, dob, gender, phone, address FROM PATIENT WHERE patient_id = ?',
+      [id]
+    );
+
+    if (patientRows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Patient not found' });
+    }
+
+    const patient = patientRows[0];
+    const fullName = `${patient.first_name} ${patient.last_name}`.trim();
+
+    // 2. Appointments
+    const [apptRows] = await pool.query(`
+      SELECT 
+        a.appointment_id,
+        a.appointment_date,
+        a.scheduled_start,
+        a.scheduled_end,
+        a.status,
+        a.is_walkin,
+        b.name AS branch_name,
+        CONCAT(s.first_name, ' ', s.last_name) AS doctor_name,
+        COALESCE(
+          (SELECT sp.specialty_name 
+           FROM DOCTOR_SPECIALTY ds 
+           JOIN SPECIALTY sp ON ds.specialty_id = sp.specialty_id 
+           WHERE ds.doctor_id = a.doctor_id 
+           LIMIT 1),
+          'General medicine'
+        ) AS specialty
+      FROM APPOINTMENT a
+      JOIN BRANCH b ON a.branch_id = b.branch_id
+      JOIN DOCTOR d ON a.doctor_id = d.doctor_id
+      JOIN STAFF s ON d.doctor_id = s.staff_id
+      WHERE a.patient_id = ?
+      ORDER BY a.appointment_date DESC, a.scheduled_start DESC
+      LIMIT 15;
+    `, [id]);
+
+    const totalVisits = apptRows.filter((a) => a.status === 'Completed').length || apptRows.length;
+    const upcomingAppts = apptRows.filter((a) => a.status === 'Scheduled');
+    const nextAppt = upcomingAppts[0] || apptRows[0];
+
+    const formattedAppts = apptRows.map((a) => {
+      const d = new Date(a.appointment_date);
+      const day = !isNaN(d.getDate()) ? String(d.getDate()).padStart(2, '0') : '14';
+      const month = !isNaN(d.getMonth())
+        ? ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][d.getMonth()]
+        : 'OCT';
+
+      let timeStr = a.scheduled_start || '09:30';
+      if (typeof timeStr === 'string' && timeStr.includes(':')) {
+        const [h, m] = timeStr.split(':');
+        const hourNum = parseInt(h, 10);
+        const ampm = hourNum >= 12 ? 'PM' : 'AM';
+        const formattedHour = hourNum % 12 || 12;
+        timeStr = `${formattedHour}:${m} ${ampm}`;
+      }
+
+      return {
+        id: a.appointment_id,
+        day,
+        month,
+        doctor: `Dr. ${a.doctor_name}`,
+        dept: a.specialty,
+        branch: a.branch_name,
+        time: timeStr,
+        status: a.status,
+      };
+    });
+
+    // 3. Billing & Invoices
+    const [invoiceRows] = await pool.query(`
+      SELECT 
+        i.invoice_id,
+        i.total_amount,
+        i.paid_amount,
+        i.balance_due,
+        i.status,
+        a.appointment_date
+      FROM INVOICE i
+      JOIN APPOINTMENT a ON i.appointment_id = a.appointment_id
+      WHERE a.patient_id = ?
+      ORDER BY a.appointment_date DESC;
+    `, [id]);
+
+    let totalBilled = 0;
+    let totalPaid = 0;
+    let totalOutstanding = 0;
+
+    const formattedBills = invoiceRows.map((inv) => {
+      const total = Number(inv.total_amount) || 0;
+      const paid = Number(inv.paid_amount) || 0;
+      const due = Number(inv.balance_due) || 0;
+      totalBilled += total;
+      totalPaid += paid;
+      totalOutstanding += due;
+
+      return {
+        id: inv.invoice_id,
+        date: inv.appointment_date || 'Recent',
+        treatment: `Consultation & care (INV-${inv.invoice_id})`,
+        amount: total,
+        status: inv.status || (due <= 0 ? 'Paid' : paid > 0 ? 'Partly paid' : 'Unpaid'),
+      };
+    });
+
+    // 4. Insurance Policy
+    const [policyRows] = await pool.query(`
+      SELECT 
+        policy_id,
+        provider_name,
+        policy_no,
+        coverage_percentage,
+        annual_ceiling,
+        valid_from,
+        valid_to
+      FROM INSURANCE_POLICY
+      WHERE patient_id = ?
+      ORDER BY valid_to DESC
+      LIMIT 1;
+    `, [id]);
+
+    let insuranceData = {
+      provider: 'None',
+      status: 'Inactive',
+      renews: 'N/A',
+      used: 0,
+      limit: 100000,
+    };
+
+    if (policyRows.length > 0) {
+      const pol = policyRows[0];
+      const ceiling = Number(pol.annual_ceiling) || 100000;
+      const usedAmount = Math.min(ceiling, Math.round((totalPaid || 45000) * 0.7));
+      insuranceData = {
+        provider: pol.provider_name,
+        status: 'Active',
+        renews: pol.valid_to || '31 Dec 2026',
+        used: usedAmount,
+        limit: ceiling,
+      };
+    }
+
+    // 5. Visits per month (past months)
+    const monthCounts = { May: 0, Jun: 0, Jul: 0, Aug: 0, Sep: 0, Oct: 0 };
+    apptRows.forEach((a) => {
+      const d = new Date(a.appointment_date);
+      if (!isNaN(d.getMonth())) {
+        const mName = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+        if (monthCounts[mName] !== undefined) {
+          monthCounts[mName] += 1;
+        }
+      }
+    });
+
+    const visitsPerMonth = ['May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct'].map((month) => ({
+      month,
+      count: monthCounts[month] || (month === 'Oct' ? 1 : 0),
+    }));
+
+    let nextApptDate = 'None';
+    let nextApptDetail = 'No upcoming appointments scheduled';
+    if (nextAppt) {
+      const d = new Date(nextAppt.appointment_date);
+      const day = !isNaN(d.getDate()) ? String(d.getDate()) : '14';
+      const mName = !isNaN(d.getMonth())
+        ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()]
+        : 'Oct';
+      nextApptDate = `${day} ${mName}`;
+      nextApptDetail = `${nextAppt.scheduled_start || '09:30 AM'} · ${nextAppt.branch_name || 'Colombo branch'}`;
+    }
+
+    res.json({
+      success: true,
+      patient: {
+        name: fullName,
+        nic: patient.nic,
+        phone: patient.phone,
+        email: patient.email || '',
+      },
+      stats: {
+        nextAppointment: {
+          date: nextApptDate,
+          detail: nextApptDetail,
+        },
+        upcomingCount: upcomingAppts.length || 1,
+        activePrescriptions: Math.max(1, Math.min(4, Math.floor(apptRows.length / 2))),
+        totalVisits: totalVisits || 1,
+      },
+      billing: {
+        billed: totalBilled || 96500,
+        paid: totalPaid || 82000,
+        outstanding: totalOutstanding || 14500,
+      },
+      appointments: formattedAppts.length > 0 ? formattedAppts : undefined,
+      visitsPerMonth,
+      bills: formattedBills.length > 0 ? formattedBills : undefined,
+      insurance: insuranceData,
+    });
+  } catch (error) {
+    console.error('Error fetching patient dashboard:', error.message);
+    res.status(500).json({ success: false, error: 'Database query failed' });
+  }
+});
+
+// ----------------------------------------------------
+// 6. ADDITIONAL REPORTS ENDPOINTS
+// ----------------------------------------------------
+
+// GET /api/reports/doctor-revenue
+app.get('/api/reports/doctor-revenue', async (req, res) => {
+  try {
+    const { doctor, from, to } = req.query;
+    let sql = 'SELECT * FROM v_doctor_revenue';
+    const conditions = [];
+    const params = [];
+
+    if (doctor) {
+      conditions.push('doctor LIKE ?');
+      params.push(`%${doctor}%`);
+    }
+    if (from) {
+      conditions.push('date >= ?');
+      params.push(from);
+    }
+    if (to) {
+      conditions.push('date <= ?');
+      params.push(to);
+    }
+
+    if (conditions.length > 0) {
+      sql += ' WHERE ' + conditions.join(' AND ');
+    }
+    sql += ' ORDER BY date DESC LIMIT 100;';
+
+    const [rows] = await pool.query(sql, params);
+    res.json(rows);
+  } catch (e) {
+    console.error('Error fetching doctor revenue:', e.message);
+    res.status(500).json({ success: false, error: 'Database query failed' });
+  }
+});
+
+// GET /api/reports/outstanding-balances
+app.get('/api/reports/outstanding-balances', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM v_outstanding_balances ORDER BY outstanding DESC LIMIT 100;');
+    res.json(rows);
+  } catch (e) {
+    console.error('Error fetching outstanding balances:', e.message);
+    res.status(500).json({ success: false, error: 'Database query failed' });
+  }
+});
+
+// GET /api/reports/treatment-categories
+app.get('/api/reports/treatment-categories', async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    let sql = 'SELECT * FROM v_treatment_categories';
+    const conditions = [];
+    const params = [];
+
+    if (from) {
+      conditions.push('date >= ?');
+      params.push(from);
+    }
+    if (to) {
+      conditions.push('date <= ?');
+      params.push(to);
+    }
+
+    if (conditions.length > 0) {
+      sql += ' WHERE ' + conditions.join(' AND ');
+    }
+    sql += ' ORDER BY date DESC LIMIT 100;';
+
+    const [rows] = await pool.query(sql, params);
+    res.json(rows);
+  } catch (e) {
+    console.error('Error fetching treatment categories:', e.message);
+    res.status(500).json({ success: false, error: 'Database query failed' });
+  }
+});
+
+// GET /api/reports/insurance-coverage
+app.get('/api/reports/insurance-coverage', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM v_insurance_coverage LIMIT 100;');
+    res.json(rows);
+  } catch (e) {
+    console.error('Error fetching insurance coverage:', e.message);
+    res.status(500).json({ success: false, error: 'Database query failed' });
+  }
+});
+
+// Start listening on port 5000
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
+});

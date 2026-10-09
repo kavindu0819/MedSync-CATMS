@@ -69,3 +69,9 @@ export async function checkBackend() {
   const response = await api.get("/doctors");
   return response.data;
 }
+
+export async function registerPatient(nic, email, password) {
+  const response = await api.post("/patient/register", { nic, email, password });
+  return response.data;
+}
+
