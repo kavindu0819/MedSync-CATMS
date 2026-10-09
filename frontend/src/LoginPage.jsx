@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { authenticate } from "./login";
 import { dashboardPath, getSession, saveSession } from "./auth";
 import { registerPatient } from "./api";
+import Hero3D from "./Hero3D";
 import "./LoginPage.css";
 
 export default function LoginPage() {
@@ -107,6 +108,7 @@ export default function LoginPage() {
   return (
     <main className="login-page">
       <section className="login-page__hero">
+        <Hero3D />
         <div className="login-page__brand">
           <span className="login-page__logo">M</span>
           <span>

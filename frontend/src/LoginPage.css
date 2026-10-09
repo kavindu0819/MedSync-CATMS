@@ -31,30 +31,15 @@
   gap: 36px;
   padding: 56px 64px;
   color: #ffffff;
-  background: radial-gradient(circle at top right, #1d3557, #0b1526 80%);
+  background: #070e1c;
 }
-
-.login-page__hero::before,
-.login-page__hero::after {
-  position: absolute;
-  width: 400px;
-  height: 400px;
-  border-radius: 50%;
-  background: var(--login-blue);
-  content: "";
-  filter: blur(90px);
-  opacity: 0.25;
-  pointer-events: none;
-}
-
-.login-page__hero::before { top: -140px; right: -120px; }
-.login-page__hero::after { bottom: -180px; left: -100px; background: #06b6d4; }
 
 .login-page__brand,
 .login-page__message,
 .login-page__callouts {
   position: relative;
-  z-index: 2;
+  z-index: 5;
+  pointer-events: auto;
 }
 
 .login-page__brand {

@@ -8,5 +8,8 @@
     "start": "npm run start --prefix backend",
     "backend": "npm run start --prefix backend",
     "build": "npm run build --prefix frontend"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
   }
 }
