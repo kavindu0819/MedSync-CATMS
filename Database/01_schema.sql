@@ -283,6 +283,16 @@ CREATE TABLE INSURANCE_CLAIM (
         ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+
+CREATE TABLE IF NOT EXISTS PATIENT_AUTH (
+    auth_id INT AUTO_INCREMENT PRIMARY KEY,
+    patient_id INT NOT NULL UNIQUE,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (patient_id) REFERENCES PATIENT(patient_id) ON DELETE CASCADE
+);
+
 -- =====================================================================
 -- End of 01_schema.sql - 17 tables created in dependency order.
 -- Next: 02_constraints.sql (CHECK / UNIQUE), then 03_functions.sql ...

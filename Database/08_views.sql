@@ -160,3 +160,15 @@ FROM INSURANCE_CLAIM cl
     JOIN INVOICE i ON i.invoice_id = cl.invoice_id
     JOIN INSURANCE_POLICY ip ON ip.policy_id = cl.policy_id
     JOIN PATIENT p ON p.patient_id = ip.patient_id;
+
+CREATE OR REPLACE VIEW v_patient_login_info AS
+SELECT 
+    p.patient_id,
+    p.nic,
+    p.first_name,
+    p.last_name,
+    p.phone,
+    pa.email,
+    pa.password_hash
+FROM PATIENT p
+JOIN PATIENT_AUTH pa ON pa.patient_id = p.patient_id;

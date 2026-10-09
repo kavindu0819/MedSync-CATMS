@@ -319,3 +319,103 @@ app.get('/api/reports/branch-appointments/months', async (req, res) => {
     res.status(500).json({ success: false, error: 'Database query failed' });
   }
 });
+
+
+// Express Route: POST /api/patient/register
+app.post('/api/patient/register', async (req, res) => {
+  const { nic, email, password } = req.body;
+
+  try {
+    // 1. Verify that the NIC exists in the PATIENT table
+    const [patients] = await pool.query('SELECT patient_id FROM PATIENT WHERE nic = ?', [nic]);
+    
+    if (patients.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'NIC not found in hospital records. Please contact the clinic desk.' 
+      });
+    }
+
+    const patientId = patients[0].patient_id;
+
+    // 2. Check if an account already exists for this patient or email
+    const [existing] = await pool.query(
+      'SELECT auth_id FROM PATIENT_AUTH WHERE patient_id = ? OR email = ?',
+      [patientId, email]
+    );
+
+    if (existing.length > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'An account is already registered for this NIC or Email.' 
+      });
+    }
+
+    // 3. Hash the password and insert into PATIENT_AUTH
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await pool.query(
+      'INSERT INTO PATIENT_AUTH (patient_id, email, password_hash) VALUES (?, ?, ?)',
+      [patientId, email, hashedPassword]
+    );
+
+    res.json({ success: true, message: 'Account successfully registered!' });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ success: false, message: 'Failed to complete registration.' });
+  }
+});
+
+const bcrypt = require('bcryptjs');
+
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    // 1. ADMIN LOGIN CHECK
+    if (email === 'admins@medsync.lk') {
+      if (password === 'admin123') {
+        return res.json({
+          success: true,
+          role: 'ADMIN',
+          user: {
+            name: 'User',
+            email: 'admins@medsync.lk',
+          },
+        });
+      } else {
+        return res.status(401).json({ success: false, message: 'Invalid admin credentials.' });
+      }
+    }
+
+    // 2. PATIENT LOGIN CHECK (Using v_patient_login_info view)
+    const [rows] = await pool.query(
+      `SELECT patient_id, nic, first_name, last_name, phone, email, password_hash 
+       FROM v_patient_login_info 
+       WHERE email = ?`,
+      [email]
+    );
+
+    if (rows.length === 0) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password.' });
+    }
+
+    const patient = rows[0];
+
+    // Verify hashed password
+    const isMatch = await bcrypt.compare(password, patient.password_hash);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password.' });
+    }
+
+    // Return patient details with role 'PATIENT'
+    const { password_hash, ...patientProfile } = patient;
+    res.json({
+      success: true,
+      role: 'PATIENT',
+      user: patientProfile,
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ success: false, message: 'Server error during login.' });
+  }
+});
