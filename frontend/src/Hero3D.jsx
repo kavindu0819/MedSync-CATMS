@@ -273,9 +273,12 @@ export default function Hero3D() {
       const w = mount.clientWidth || 1;
       const h = mount.clientHeight || 1;
       const containerAspect = w / h;
-      // Adjust scale to cover hero viewport
-      const baseScale = containerAspect > 1.4 ? 1.45 : 1.3;
-      photoMesh.scale.setScalar(baseScale);
+      const imgAspect = 1024 / 682;
+      // Guarantee full-page coverage with safety margin for parallax tilts
+      const coverScale = Math.max(containerAspect / imgAspect, 1) * 1.38;
+      photoMesh.scale.setScalar(coverScale);
+      // On desktop, shift scene slightly left so laptop & hands sit in hero zone while ambient cyber glow covers the right
+      root.position.x = containerAspect < 1.1 ? 0 : -0.45;
     }
 
     function resize() {
@@ -285,7 +288,7 @@ export default function Hero3D() {
       renderer.setSize(w, h, false);
       pMat.uniforms.uPx.value = renderer.getPixelRatio();
       camera.aspect = w / h;
-      camera.position.z = camera.aspect < 0.95 ? 6.1 : 5.2;
+      camera.position.z = camera.aspect < 1.1 ? 6.2 : 5.2;
       camera.updateProjectionMatrix();
       adjustPhotoCover();
     }

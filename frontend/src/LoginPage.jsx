@@ -107,8 +107,8 @@ export default function LoginPage() {
 
   return (
     <main className="login-page">
+      <Hero3D />
       <section className="login-page__hero">
-        <Hero3D />
         <div className="login-page__brand">
           <span className="login-page__logo">M</span>
           <span>

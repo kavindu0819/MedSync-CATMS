@@ -1,10 +1,12 @@
-/* ================= Hero3D Interactive Medical Canvas ================= */
+/* ================= Hero3D Interactive Medical Canvas (Full-Page) ================= */
 .hero3d {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   z-index: 1;
   overflow: hidden;
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 .hero3d__canvas {
@@ -30,22 +32,22 @@
   transition: background 0.1s ease-out;
 }
 
-/* Cinematic Medical Vignette & Legibility Gradient */
+/* Cinematic Medical Vignette & Contrast Scrim spanning whole screen */
 .hero3d__shade {
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 3;
   background:
-    linear-gradient(180deg, rgba(7, 14, 28, 0.72) 0%, rgba(7, 14, 28, 0.12) 35%, rgba(7, 14, 28, 0.25) 65%, rgba(7, 14, 28, 0.85) 100%),
-    linear-gradient(90deg, rgba(7, 14, 28, 0.88) 0%, rgba(7, 14, 28, 0.55) 45%, rgba(7, 14, 28, 0.15) 80%, rgba(7, 14, 28, 0.4) 100%);
+    linear-gradient(180deg, rgba(29, 48, 83, 0.55) 0%, rgba(6, 13, 26, 0.05) 35%, rgba(6, 13, 26, 0.1) 65%, rgba(6, 13, 26, 0.6) 100%),
+    linear-gradient(90deg, rgba(32, 53, 92, 0.88) 0%, rgba(6, 13, 26, 0.45) 30%, rgba(6, 13, 26, 0.08) 55%, rgba(6, 13, 26, 0) 100%);
 }
 
 /* ================= Holographic Diagnostic Reticle ================= */
 .hero3d__reticle {
   position: absolute;
   top: 18%;
-  right: 14%;
+  left: clamp(330px, 34vw, 45vw);
   width: 170px;
   height: 170px;
   pointer-events: none;
@@ -57,7 +59,7 @@
   inset: 0;
   border-radius: 50%;
   border: 1px dashed rgba(56, 189, 248, 0.45);
-  box-shadow: 0 0 20px rgba(56, 189, 248, 0.15);
+  box-shadow: 0 0 20px rgba(21, 119, 200, 0.725);
   animation: reticleSpin 22s linear infinite;
 }
 
@@ -73,13 +75,23 @@
 }
 
 @keyframes reticleSpin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes reticleSpinReverse {
-  from { transform: rotate(360deg); }
-  to { transform: rotate(0deg); }
+  from {
+    transform: rotate(360deg);
+  }
+
+  to {
+    transform: rotate(0deg);
+  }
 }
 
 /* Vertical holographic laser scan line sweeping across laptop display */
@@ -94,9 +106,19 @@
 }
 
 @keyframes beamSweep {
-  0% { top: 5%; opacity: 0.2; }
-  50% { opacity: 0.95; }
-  100% { top: 92%; opacity: 0.2; }
+  0% {
+    top: 5%;
+    opacity: 0.2;
+  }
+
+  50% {
+    opacity: 0.95;
+  }
+
+  100% {
+    top: 92%;
+    opacity: 0.2;
+  }
 }
 
 .reticle__tag {
@@ -114,7 +136,7 @@
   letter-spacing: 1px;
   color: #38bdf8;
   text-shadow: 0 0 8px rgba(56, 189, 248, 0.7);
-  background: rgba(15, 23, 42, 0.75);
+  background: rgba(60, 135, 182, 0.874);
   padding: 3px 8px;
   border-radius: 6px;
   border: 1px solid rgba(56, 189, 248, 0.3);
@@ -133,18 +155,19 @@
 .hero3d__hud {
   position: absolute;
   top: 36px;
-  right: 32px;
+  left: clamp(340px, 35vw, 47vw);
   width: 260px;
   padding: 16px 18px;
   border-radius: 18px;
   color: #e2e8f0;
   font-size: 12px;
-  background: rgba(13, 27, 48, 0.65);
+  background: rgba(13, 27, 48, 0.68);
   border: 1px solid rgba(255, 255, 255, 0.18);
   box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   z-index: 4;
+  pointer-events: auto;
   transition: transform 0.15s ease-out;
 }
 
@@ -167,9 +190,20 @@
 }
 
 @keyframes hudDotPulse {
-  0% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.3); opacity: 0.6; }
-  100% { transform: scale(1); opacity: 1; }
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scale(1.3);
+    opacity: 0.6;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .hud__status {
@@ -196,9 +230,9 @@
   overflow: hidden;
   height: 44px;
   margin: 10px 0;
-  background: rgba(10, 20, 36, 0.45);
+  background: rgba(10, 20, 36, 0.5);
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .hud__ecg {
@@ -235,8 +269,13 @@
 }
 
 @keyframes sweepMove {
-  0% { left: -20px; }
-  100% { left: 100%; }
+  0% {
+    left: -20px;
+  }
+
+  100% {
+    left: 100%;
+  }
 }
 
 /* HUD Vitals Row */
@@ -271,21 +310,22 @@
 }
 
 /* ================= Responsive Rules ================= */
-@media (max-width: 1100px) {
+@media (max-width: 1200px) {
   .hero3d__hud {
-    right: 20px;
-    top: 20px;
-    width: 220px;
+    width: 230px;
     padding: 12px 14px;
+    left: clamp(300px, 32vw, 45vw);
   }
+
   .hero3d__reticle {
     width: 130px;
     height: 130px;
-    right: 10%;
+    left: clamp(290px, 32vw, 42vw);
   }
 }
 
 @media (max-width: 900px) {
+
   .hero3d__hud,
   .hero3d__reticle {
     display: none;
@@ -293,6 +333,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .hud__dot,
   .hud__ecg polyline,
   .reticle__ring,
