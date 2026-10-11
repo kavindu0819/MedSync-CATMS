@@ -4,36 +4,20 @@ import { api } from "./api";
 import "./PatientDashboard.css";
 
 
-/* ---------- Sample data (replaced automatically when the API returns rows) ---------- */
-const SAMPLE = {
-  patient: { name: "Patient name" },
+const EMPTY_DATA = {
+  patient: { name: "" },
   stats: {
-    nextAppointment: { date: "14 Oct", detail: "Tue, 9:30 AM · Colombo branch" },
-    upcomingCount: 3,
-    activePrescriptions: 2,
-    totalVisits: 18,
+    nextAppointment: { date: "None", detail: "No upcoming appointments scheduled" },
+    upcomingCount: 0,
+    activePrescriptions: null,
+    totalVisits: 0,
   },
-  billing: { billed: 96500, paid: 82000, outstanding: 14500 },
-  appointments: [
-    { id: 1, day: "14", month: "OCT", doctor: "Dr. A. Perera", dept: "Cardiology", branch: "Colombo branch", time: "9:30 AM" },
-    { id: 2, day: "21", month: "OCT", doctor: "Dr. S. Fernando", dept: "Dental", branch: "Kandy branch", time: "2:00 PM" },
-    { id: 3, day: "03", month: "NOV", doctor: "Dr. N. Jayasuriya", dept: "General medicine", branch: "Colombo branch", time: "11:15 AM" },
-  ],
-  visitsPerMonth: [
-    { month: "May", count: 1 },
-    { month: "Jun", count: 2 },
-    { month: "Jul", count: 1 },
-    { month: "Aug", count: 3 },
-    { month: "Sep", count: 2 },
-    { month: "Oct", count: 1 },
-  ],
-  bills: [
-    { id: 1, date: "02 Oct 2026", treatment: "Cardiology consult", amount: 14500, status: "Unpaid" },
-    { id: 2, date: "18 Sep 2026", treatment: "Blood panel", amount: 9800, status: "Paid" },
-    { id: 3, date: "28 Aug 2026", treatment: "Dental cleaning", amount: 22000, status: "Partly paid" },
-    { id: 4, date: "11 Aug 2026", treatment: "General checkup", amount: 6500, status: "Paid" },
-  ],
-  insurance: { provider: "Insurer name", status: "Active", renews: "31 Dec 2026", used: 120000, limit: 300000 },
+  billing: { billed: 0, paid: 0, outstanding: 0 },
+  appointments: [],
+  records: [],
+  visitsPerMonth: [],
+  bills: [],
+  insurance: { provider: "None", status: "Inactive", renews: "N/A", used: 0, limit: 0 },
 };
 
 const NAV = [
@@ -46,6 +30,15 @@ const NAV = [
 ];
 
 const lkr = (n) => `LKR ${Number(n).toLocaleString("en-US")}`;
+const formatDate = (value) => {
+  if (!value) return "—";
+  const [year, month, day] = String(value).slice(0, 10).split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
 const STATUS_CLASS = { "Paid": "chip chip--paid", "Partly paid": "chip chip--partial", "Unpaid": "chip chip--unpaid" };
 
 /* ---------- Small building blocks ---------- */
@@ -75,27 +68,71 @@ function Panel({ id, eyebrow, title, action, children }) {
 }
 
 /* ---------- Page ---------- */
-export default function PatientDashboard({ apiBase = "/api", patientId, patientName, onLogout }) {
+export default function PatientDashboard({ patientId, patientName, onLogout }) {
   const navigate = useNavigate();
-  const [data, setData] = useState(SAMPLE);
   const [active, setActive] = useState("overview");
-  const [usingSample, setUsingSample] = useState(true);
+  const [dashboardState, setDashboardState] = useState({
+    patientId: null,
+    status: "loading",
+    data: EMPTY_DATA,
+    error: "",
+  });
 
-  // Replace the sample data with real rows when the backend responds.
   useEffect(() => {
-    if (!patientId) return;
     let isMounted = true;
 
-    api.get(`/patients/${patientId}/dashboard`)
+    Promise.resolve()
+      .then(() => {
+        if (!patientId) {
+          throw new Error("Your patient account could not be identified. Please sign in again.");
+        }
+        return api.get(`/patients/${patientId}/dashboard`);
+      })
       .then((res) => {
-        if (isMounted && res.data) {
-          setData((prev) => ({ ...prev, ...res.data }));
-          setUsingSample(false);
+        if (isMounted && res.data?.success) {
+          const responseData = res.data;
+          setDashboardState({
+            patientId,
+            status: "loaded",
+            data: {
+              ...EMPTY_DATA,
+              ...responseData,
+              patient: { ...EMPTY_DATA.patient, ...responseData.patient },
+              stats: {
+                ...EMPTY_DATA.stats,
+                ...responseData.stats,
+                nextAppointment: {
+                  ...EMPTY_DATA.stats.nextAppointment,
+                  ...responseData.stats?.nextAppointment,
+                },
+              },
+              billing: { ...EMPTY_DATA.billing, ...responseData.billing },
+              appointments: Array.isArray(responseData.appointments) ? responseData.appointments : [],
+              records: Array.isArray(responseData.records) ? responseData.records : [],
+              visitsPerMonth: Array.isArray(responseData.visitsPerMonth) ? responseData.visitsPerMonth : [],
+              bills: Array.isArray(responseData.bills) ? responseData.bills : [],
+              insurance: { ...EMPTY_DATA.insurance, ...responseData.insurance },
+            },
+            error: "",
+          });
+        } else if (isMounted) {
+          setDashboardState({
+            patientId,
+            status: "error",
+            data: EMPTY_DATA,
+            error: "The patient dashboard returned an invalid response.",
+          });
         }
       })
       .catch((err) => {
-        console.warn("Could not load live patient data, showing demo data:", err.message);
-        if (isMounted) setUsingSample(true);
+        if (isMounted) {
+          setDashboardState({
+            patientId,
+            status: "error",
+            data: EMPTY_DATA,
+            error: err.response?.data?.message || err.message || "Unable to load your patient records. Please try again.",
+          });
+        }
       });
 
     return () => {
@@ -103,11 +140,18 @@ export default function PatientDashboard({ apiBase = "/api", patientId, patientN
     };
   }, [patientId]);
 
+  const currentState = dashboardState.patientId === patientId ? dashboardState : null;
+  const data = currentState?.data || EMPTY_DATA;
+  const loading = !currentState || currentState.status === "loading";
+  const loadError = currentState?.status === "error" ? currentState.error : "";
+
   const maxVisits = useMemo(
     () => Math.max(1, ...data.visitsPerMonth.map((v) => v.count)),
     [data.visitsPerMonth]
   );
-  const usedPct = Math.round((data.insurance.used / data.insurance.limit) * 100);
+  const usedPct = data.insurance.limit > 0
+    ? Math.min(100, Math.round((data.insurance.used / data.insurance.limit) * 100))
+    : 0;
 
   const go = (id) => (e) => {
     e.preventDefault();
@@ -150,18 +194,22 @@ export default function PatientDashboard({ apiBase = "/api", patientId, patientN
           </div>
           <div className="pd__user-actions">
             <div className="user">
-              <div className="user__avatar">{(patientName || data.patient.name).charAt(0).toUpperCase()}</div>
-              <div className="user__name">{patientName || data.patient.name}</div>
+              <div className="user__avatar">{(patientName || data.patient.name || "P").charAt(0).toUpperCase()}</div>
+              <div className="user__name">{patientName || data.patient.name || "Patient"}</div>
             </div>
             <button className="pd__logout" type="button" onClick={() => { onLogout(); navigate("/", { replace: true }); }}>Sign out</button>
           </div>
         </header>
 
+        {loading && <p className="muted" role="status">Loading your patient records…</p>}
+        {loadError && <p className="muted" role="alert">{loadError}</p>}
+
+        {!loading && !loadError && <>
         {/* Stat cards */}
         <div className="grid">
           <StatCard label="Next appointment" value={data.stats.nextAppointment.date} note={data.stats.nextAppointment.detail} />
-          <StatCard label="Upcoming appointments" value={data.stats.upcomingCount} note="Booked for the next 30 days" />
-          <StatCard label="Active prescriptions" value={data.stats.activePrescriptions} note="Prescribed by your doctors" />
+          <StatCard label="Upcoming appointments" value={data.stats.upcomingCount} note="Scheduled visits ahead" />
+          <StatCard label="Active prescriptions" value={data.stats.activePrescriptions ?? "N/A"} note="Not tracked in the current system" />
           <StatCard label="Total visits" value={data.stats.totalVisits} note="Across all branches" />
         </div>
         <div className="grid grid--3">
@@ -175,19 +223,21 @@ export default function PatientDashboard({ apiBase = "/api", patientId, patientN
           <Panel
             id="appointments"
             eyebrow="APPOINTMENTS"
-            title="Upcoming visits"
+            title="Recent appointments"
             action={<button type="button" className="btn">Book appointment</button>}
           >
             <ul className="appts">
+              {data.appointments.length === 0 && <li className="muted">No appointment records found.</li>}
               {data.appointments.map((a) => (
                 <li key={a.id} className="appt">
                   <div className="appt__date">
                     <div className="appt__day">{a.day}</div>
                     <div className="appt__month">{a.month}</div>
+                    <div className="appt__year">{a.year}</div>
                   </div>
                   <div className="appt__info">
                     <div className="appt__doctor">{a.doctor}</div>
-                    <div className="appt__meta">{a.dept} · {a.branch}</div>
+                    <div className="appt__meta">{a.dept} · {a.branch} · {a.status}</div>
                   </div>
                   <div className="appt__time">{a.time}</div>
                 </li>
@@ -208,6 +258,41 @@ export default function PatientDashboard({ apiBase = "/api", patientId, patientN
           </Panel>
         </div>
 
+        <Panel id="records" eyebrow="MEDICAL RECORDS" title="Consultation history">
+          {data.records.length === 0 ? (
+            <p className="muted">No consultation records are available for this patient.</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Diagnosis</th>
+                    <th>Doctor</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.records.map((record) => (
+                    <tr key={record.id}>
+                      <td>{formatDate(record.date)}</td>
+                      <td className="strong">{record.diagnosis}</td>
+                      <td>{record.doctor}</td>
+                      <td>{record.notes}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+
+        <Panel id="prescriptions" eyebrow="PRESCRIPTIONS" title="Prescription records">
+          <p className="muted">
+            Prescription details are not stored in the current system. Contact your clinic for medication instructions.
+          </p>
+        </Panel>
+
         {/* Bills + insurance */}
         <div className="row">
           <Panel id="billing" eyebrow="BILLING" title="Recent bills">
@@ -222,9 +307,12 @@ export default function PatientDashboard({ apiBase = "/api", patientId, patientN
                   </tr>
                 </thead>
                 <tbody>
+                  {data.bills.length === 0 && (
+                    <tr><td colSpan="4" className="muted">No bills recorded.</td></tr>
+                  )}
                   {data.bills.map((b) => (
                     <tr key={b.id}>
-                      <td>{b.date}</td>
+                      <td>{formatDate(b.date)}</td>
                       <td className="strong">{b.treatment}</td>
                       <td className="right">{lkr(b.amount)}</td>
                       <td><span className={STATUS_CLASS[b.status] || "chip"}>{b.status}</span></td>
@@ -254,9 +342,7 @@ export default function PatientDashboard({ apiBase = "/api", patientId, patientN
           </Panel>
         </div>
 
-        {usingSample && (
-          <p className="muted">Sample data shown. Rows are replaced automatically when the backend returns your real records.</p>
-        )}
+        </>}
       </main>
     </div>
   );

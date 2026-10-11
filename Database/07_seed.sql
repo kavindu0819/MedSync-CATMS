@@ -184,9 +184,11 @@ BEGIN
                 SET v_room    = (v_branch - 1) * 3 + 1 + (v_slot MOD 3);   -- a room in that branch
                 SET v_patient = 1 + (v_i MOD 200);
                 SET v_walkin  = (v_i % 7 = 0);
+                -- These seed dates are historical. Vary status by both the
+                -- patient slot and its cycle so one patient is not assigned
+                -- the same status for every appointment.
                 SET v_status  = CASE
-                                    WHEN v_i % 20 = 0        THEN 'Cancelled'
-                                    WHEN v_i % 20 IN (1,2)   THEN 'Scheduled'
+                                    WHEN MOD(v_i + FLOOR(v_i / 200), 20) = 0 THEN 'Cancelled'
                                     ELSE 'Completed'
                                 END;
 

@@ -78,6 +78,7 @@
 .pd .appt__date { flex: 0 0 64px; padding: 8px 0; border-radius: 12px; background: #dbe7ff; color: #12307a; text-align: center; }
 .pd .appt__day { font-size: 24px; font-weight: 700; line-height: 1; }
 .pd .appt__month { font-size: 13px; font-weight: 600; margin-top: 4px; }
+.pd .appt__year { font-size: 11px; margin-top: 2px; }
 .pd .appt__info { flex: 1 1 180px; min-width: 0; }
 .pd .appt__doctor { font-size: 18px; font-weight: 600; }
 .pd .appt__meta { font-size: 15px; color: #4a5a78; margin-top: 4px; }

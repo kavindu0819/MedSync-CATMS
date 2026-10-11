@@ -459,10 +459,17 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/patients/:id/dashboard', async (req, res) => {
   try {
     const { id } = req.params;
+    if (!/^[1-9]\d*$/.test(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid patient ID.' });
+    }
 
     // 1. Patient profile
     const [patientRows] = await pool.query(
-      'SELECT patient_id, nic, first_name, last_name, dob, gender, phone, address FROM PATIENT WHERE patient_id = ?',
+      `SELECT p.patient_id, p.nic, p.first_name, p.last_name, p.dob, p.gender,
+              p.phone, p.address, pa.email
+       FROM PATIENT p
+       LEFT JOIN PATIENT_AUTH pa ON pa.patient_id = p.patient_id
+       WHERE p.patient_id = ?`,
       [id]
     );
 
@@ -473,7 +480,7 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
     const patient = patientRows[0];
     const fullName = `${patient.first_name} ${patient.last_name}`.trim();
 
-    // 2. Appointments
+    // 2. Upcoming appointments for this patient
     const [apptRows] = await pool.query(`
       SELECT 
         a.appointment_id,
@@ -482,6 +489,7 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
         a.scheduled_end,
         a.status,
         a.is_walkin,
+        (a.status = 'Scheduled' AND a.appointment_date >= CURDATE()) AS is_upcoming,
         b.name AS branch_name,
         CONCAT(s.first_name, ' ', s.last_name) AS doctor_name,
         COALESCE(
@@ -497,20 +505,34 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
       JOIN DOCTOR d ON a.doctor_id = d.doctor_id
       JOIN STAFF s ON d.doctor_id = s.staff_id
       WHERE a.patient_id = ?
-      ORDER BY a.appointment_date DESC, a.scheduled_start DESC
+      ORDER BY a.appointment_date ASC, a.scheduled_start ASC
       LIMIT 15;
     `, [id]);
 
-    const totalVisits = apptRows.filter((a) => a.status === 'Completed').length || apptRows.length;
-    const upcomingAppts = apptRows.filter((a) => a.status === 'Scheduled');
-    const nextAppt = upcomingAppts[0] || apptRows[0];
+    const [[visitSummary]] = await pool.query(
+      `SELECT COUNT(*) AS total_visits
+       FROM APPOINTMENT
+       WHERE patient_id = ? AND status = 'Completed'`,
+      [id]
+    );
+    const [[upcomingSummary]] = await pool.query(
+      `SELECT COUNT(*) AS upcoming_count
+       FROM APPOINTMENT
+       WHERE patient_id = ? AND status = 'Scheduled' AND appointment_date >= CURDATE()`,
+      [id]
+    );
+    const nextAppt = apptRows
+      .filter((appointment) => appointment.is_upcoming)
+      .sort((a, b) =>
+        String(a.appointment_date).localeCompare(String(b.appointment_date)) ||
+        String(a.scheduled_start).localeCompare(String(b.scheduled_start))
+      )[0];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
     const formattedAppts = apptRows.map((a) => {
-      const d = new Date(a.appointment_date);
-      const day = !isNaN(d.getDate()) ? String(d.getDate()).padStart(2, '0') : '14';
-      const month = !isNaN(d.getMonth())
-        ? ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][d.getMonth()]
-        : 'OCT';
+      const [year, monthNumber, dayNumber] = String(a.appointment_date).slice(0, 10).split('-').map(Number);
+      const day = String(dayNumber).padStart(2, '0');
+      const month = monthNames[monthNumber - 1]?.toUpperCase() || '';
 
       let timeStr = a.scheduled_start || '09:30';
       if (typeof timeStr === 'string' && timeStr.includes(':')) {
@@ -525,6 +547,8 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
         id: a.appointment_id,
         day,
         month,
+        year,
+        date: String(a.appointment_date).slice(0, 10),
         doctor: `Dr. ${a.doctor_name}`,
         dept: a.specialty,
         branch: a.branch_name,
@@ -533,18 +557,47 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
       };
     });
 
-    // 3. Billing & Invoices
+    // 3. Consultation history for this patient
+    const [recordRows] = await pool.query(`
+      SELECT
+        c.consultation_id,
+        c.diagnosis,
+        c.notes,
+        a.appointment_date,
+        a.status,
+        CONCAT(s.first_name, ' ', s.last_name) AS doctor_name
+      FROM CONSULTATION c
+      JOIN APPOINTMENT a ON a.appointment_id = c.appointment_id
+      JOIN DOCTOR d ON d.doctor_id = a.doctor_id
+      JOIN STAFF s ON s.staff_id = d.doctor_id
+      WHERE a.patient_id = ?
+      ORDER BY a.appointment_date DESC, a.scheduled_start DESC
+      LIMIT 20;
+    `, [id]);
+    const formattedRecords = recordRows.map((record) => ({
+      id: record.consultation_id,
+      date: String(record.appointment_date).slice(0, 10),
+      diagnosis: record.diagnosis || 'Diagnosis not recorded',
+      notes: record.notes || 'No notes recorded',
+      doctor: `Dr. ${record.doctor_name}`,
+      status: record.status,
+    }));
+
+    // 4. Billing & invoices
     const [invoiceRows] = await pool.query(`
       SELECT 
         i.invoice_id,
         i.total_amount,
         i.paid_amount,
         i.balance_due,
-        i.status,
-        a.appointment_date
+        a.appointment_date,
+        COALESCE(GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', '), '') AS treatments
       FROM INVOICE i
       JOIN APPOINTMENT a ON i.appointment_id = a.appointment_id
+      LEFT JOIN APPT_TREATMENT at ON at.appointment_id = a.appointment_id
+      LEFT JOIN TREATMENT t ON t.treatment_id = at.treatment_id
       WHERE a.patient_id = ?
+      GROUP BY i.invoice_id, i.total_amount, i.paid_amount, i.balance_due, a.appointment_date
       ORDER BY a.appointment_date DESC;
     `, [id]);
 
@@ -562,26 +615,28 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
 
       return {
         id: inv.invoice_id,
-        date: inv.appointment_date || 'Recent',
-        treatment: `Consultation & care (INV-${inv.invoice_id})`,
+        date: inv.appointment_date,
+        treatment: inv.treatments || 'No treatment details recorded',
         amount: total,
-        status: inv.status || (due <= 0 ? 'Paid' : paid > 0 ? 'Partly paid' : 'Unpaid'),
+        status: due <= 0 ? 'Paid' : paid > 0 ? 'Partly paid' : 'Unpaid',
       };
     });
 
-    // 4. Insurance Policy
+    // 5. Insurance Policy
     const [policyRows] = await pool.query(`
       SELECT 
-        policy_id,
-        provider_name,
-        policy_no,
-        coverage_percentage,
-        annual_ceiling,
-        valid_from,
-        valid_to
-      FROM INSURANCE_POLICY
-      WHERE patient_id = ?
-      ORDER BY valid_to DESC
+        ip.policy_id,
+        ip.provider_name,
+        ip.annual_ceiling,
+        ip.valid_from,
+        ip.valid_to,
+        (ip.valid_from <= CURDATE() AND ip.valid_to >= CURDATE()) AS is_active,
+        COALESCE(SUM(ic.approved_amount), 0) AS used_amount
+      FROM INSURANCE_POLICY ip
+      LEFT JOIN INSURANCE_CLAIM ic ON ic.policy_id = ip.policy_id
+      WHERE ip.patient_id = ?
+      GROUP BY ip.policy_id, ip.provider_name, ip.annual_ceiling, ip.valid_from, ip.valid_to
+      ORDER BY (ip.valid_from <= CURDATE() AND ip.valid_to >= CURDATE()) DESC, ip.valid_to DESC
       LIMIT 1;
     `, [id]);
 
@@ -590,49 +645,51 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
       status: 'Inactive',
       renews: 'N/A',
       used: 0,
-      limit: 100000,
+      limit: 0,
     };
 
     if (policyRows.length > 0) {
       const pol = policyRows[0];
-      const ceiling = Number(pol.annual_ceiling) || 100000;
-      const usedAmount = Math.min(ceiling, Math.round((totalPaid || 45000) * 0.7));
+      const ceiling = Number(pol.annual_ceiling) || 0;
+      const usedAmount = Math.min(ceiling, Number(pol.used_amount) || 0);
       insuranceData = {
         provider: pol.provider_name,
-        status: 'Active',
-        renews: pol.valid_to || '31 Dec 2026',
+        status: pol.is_active ? 'Active' : 'Inactive',
+        renews: pol.valid_to,
         used: usedAmount,
         limit: ceiling,
       };
     }
 
-    // 5. Visits per month (past months)
-    const monthCounts = { May: 0, Jun: 0, Jul: 0, Aug: 0, Sep: 0, Oct: 0 };
-    apptRows.forEach((a) => {
-      const d = new Date(a.appointment_date);
-      if (!isNaN(d.getMonth())) {
-        const mName = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
-        if (monthCounts[mName] !== undefined) {
-          monthCounts[mName] += 1;
-        }
-      }
+    // 6. Completed visits during the current and previous five calendar months
+    const [monthlyVisits] = await pool.query(`
+      SELECT DATE_FORMAT(appointment_date, '%Y-%m') AS month_key, COUNT(*) AS visit_count
+      FROM APPOINTMENT
+      WHERE patient_id = ?
+        AND status = 'Completed'
+        AND appointment_date >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 5 MONTH)
+      GROUP BY DATE_FORMAT(appointment_date, '%Y-%m')
+    `, [id]);
+    const monthCounts = new Map(monthlyVisits.map((row) => [row.month_key, Number(row.visit_count)]));
+    const now = new Date();
+    const visitsPerMonth = Array.from({ length: 6 }, (_, index) => {
+      const monthDate = new Date(now.getFullYear(), now.getMonth() - 5 + index, 1);
+      const monthKey = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}`;
+      return { month: monthNames[monthDate.getMonth()], count: monthCounts.get(monthKey) || 0 };
     });
-
-    const visitsPerMonth = ['May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct'].map((month) => ({
-      month,
-      count: monthCounts[month] || (month === 'Oct' ? 1 : 0),
-    }));
 
     let nextApptDate = 'None';
     let nextApptDetail = 'No upcoming appointments scheduled';
     if (nextAppt) {
-      const d = new Date(nextAppt.appointment_date);
-      const day = !isNaN(d.getDate()) ? String(d.getDate()) : '14';
-      const mName = !isNaN(d.getMonth())
-        ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()]
-        : 'Oct';
-      nextApptDate = `${day} ${mName}`;
-      nextApptDetail = `${nextAppt.scheduled_start || '09:30 AM'} · ${nextAppt.branch_name || 'Colombo branch'}`;
+      const [, monthNumber, dayNumber] = String(nextAppt.appointment_date).slice(0, 10).split('-').map(Number);
+      let time = String(nextAppt.scheduled_start || '09:30');
+      if (time.includes(':')) {
+        const [hour, minute] = time.split(':');
+        const hourNumber = Number(hour);
+        time = `${hourNumber % 12 || 12}:${minute} ${hourNumber >= 12 ? 'PM' : 'AM'}`;
+      }
+      nextApptDate = `${dayNumber} ${monthNames[monthNumber - 1]}`;
+      nextApptDetail = `${time} · ${nextAppt.branch_name}`;
     }
 
     res.json({
@@ -648,18 +705,19 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
           date: nextApptDate,
           detail: nextApptDetail,
         },
-        upcomingCount: upcomingAppts.length || 1,
-        activePrescriptions: Math.max(1, Math.min(4, Math.floor(apptRows.length / 2))),
-        totalVisits: totalVisits || 1,
+        upcomingCount: Number(upcomingSummary.upcoming_count),
+        activePrescriptions: null,
+        totalVisits: Number(visitSummary.total_visits),
       },
       billing: {
-        billed: totalBilled || 96500,
-        paid: totalPaid || 82000,
-        outstanding: totalOutstanding || 14500,
+        billed: totalBilled,
+        paid: totalPaid,
+        outstanding: totalOutstanding,
       },
-      appointments: formattedAppts.length > 0 ? formattedAppts : undefined,
+      appointments: formattedAppts,
+      records: formattedRecords,
       visitsPerMonth,
-      bills: formattedBills.length > 0 ? formattedBills : undefined,
+      bills: formattedBills,
       insurance: insuranceData,
     });
   } catch (error) {
@@ -761,4 +819,4 @@ app.get('/api/reports/insurance-coverage', async (req, res) => {
 // Start listening on port 5000
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
-});
+});

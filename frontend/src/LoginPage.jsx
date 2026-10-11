@@ -39,7 +39,7 @@ export default function LoginPage() {
       setEmail("admins@medsync.lk");
       setPassword("admin123");
     } else {
-      setEmail("patient1@medsync.lk");
+      setEmail("patient4@medsync.lk");
       setPassword("patient123");
     }
   }
@@ -49,10 +49,6 @@ export default function LoginPage() {
   const isAdminEmail =
     normalizedTypedEmail.includes("admin") ||
     normalizedTypedEmail.endsWith("@medsync.lk") && !normalizedTypedEmail.includes("patient");
-  const isPatientEmail =
-    normalizedTypedEmail.includes("patient") ||
-    (normalizedTypedEmail.length > 5 && !isAdminEmail);
-
   async function handleLoginSubmit(event) {
     event.preventDefault();
     setError("");
@@ -194,7 +190,7 @@ export default function LoginPage() {
                   type="email"
                   name="email"
                   autoComplete="username"
-                  placeholder="e.g. admins@medsync.lk or patient1@medsync.lk"
+                  placeholder="e.g. admins@medsync.lk or patient4@medsync.lk"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   required
