@@ -21,6 +21,8 @@ button, input, select { font: inherit; }
 .eyebrow { margin: 0; color: #64748b; font-size: 11px; font-weight: bold; letter-spacing: 1.4px; }
 .user-chip { display: flex; align-items: center; gap: 9px; background: white; padding: 8px 14px 8px 8px; border-radius: 30px; box-shadow: 0 3px 12px rgba(30, 55, 90, .08); font-size: 14px; }
 .user-avatar { width: 32px; height: 32px; display: grid; place-items: center; background: #dbeafe; color: #1d4ed8; border-radius: 50%; font-weight: bold; }
+.logout-button { border: 0; border-radius: 8px; padding: 7px 10px; background: #eff6ff; color: #1d4ed8; cursor: pointer; font-size: 13px; font-weight: 600; }
+.logout-button:hover { background: #dbeafe; }
 
 .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-bottom: 24px; }
 .summary-card, .panel { background: white; border: 1px solid #e5eaf1; border-radius: 16px; box-shadow: 0 5px 18px rgba(30, 55, 90, .05); }
@@ -61,3 +63,11 @@ td { color: #334155; }
 
 @media (max-width: 900px) { .sidebar { width: 210px; } .main-content { padding: 25px; } .summary-grid { grid-template-columns: repeat(2, 1fr); } .overview-grid { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .app-shell { display: block; } .sidebar { width: 100%; } .navigation { display: grid; grid-template-columns: repeat(2, 1fr); } .sidebar-footer { display: none; } .main-content { padding: 20px; } .topbar { align-items: flex-start; gap: 15px; } .summary-grid { grid-template-columns: 1fr; } }
+
+/* Pagination (Outstanding balances) */
+.pagination { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; margin-top: 24px; }
+.page-button { min-width: 38px; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: white; color: #334155; font-size: 14px; cursor: pointer; }
+.page-button:hover:not(:disabled) { border-color: #2563eb; color: #2563eb; }
+.page-button.active { border-color: #2563eb; background: #2563eb; color: white; }
+.page-button:disabled { opacity: 0.4; cursor: default; }
+.page-gap { padding: 0 4px; color: #94a3b8; }

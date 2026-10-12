@@ -64,8 +64,24 @@ export async function fetchBranchAppointments(branchId, month) {
   return response.data;
 }
 
+export async function fetchOutstandingBalances(page) {
+  const response = await api.get("/reports/outstanding-balances", { params: { page } });
+  return response.data;
+}
+
+export async function fetchInsuranceCoverage(page) {
+  const response = await api.get("/reports/insurance-coverage", { params: { page } });
+  return response.data;
+}
+
 export async function checkBackend() {
   // The current backend already has this route in server.js.
   const response = await api.get("/doctors");
   return response.data;
 }
+
+export async function registerPatient(nic, email, password) {
+  const response = await api.post("/patient/register", { nic, email, password });
+  return response.data;
+}
+
