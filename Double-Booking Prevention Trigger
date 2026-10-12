@@ -1,0 +1,19 @@
+CREATE OR REPLACE FUNCTION fn_check_appointment_overlap()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM appointment
+        WHERE doctor_id = NEW.doctor_id
+          AND appointment_id <> COALESCE(NEW.appointment_id, -1)
+          AND status <> 'Cancelled'
+          AND (NEW.scheduled_start, NEW.scheduled_end) OVERLAPS (scheduled_start, scheduled_end)
+    ) THEN
+        RAISE EXCEPTION 'Doctor ID % already has an overlapping appointment.', NEW.doctor_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_prevent_double_booking
+BEFORE INSERT OR UPDATE ON appointment
+FOR EACH ROW EXECUTE FUNCTION fn_check_appointment_overlap();
