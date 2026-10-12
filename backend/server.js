@@ -2,6 +2,20 @@ require('dotenv').config();
 const express = require('express');
 const pool = require('./docker_connect'); // Imports your database connection pool
 const bcrypt = require('bcryptjs');
+const { randomBytes } = require('node:crypto');
+// Opaque, short-lived patient sessions for appointment management.
+const patientSessions = new Map();
+const sessionCleanup = setInterval(() => {
+  for (const [token, session] of patientSessions) if (session.expires <= Date.now()) patientSessions.delete(token);
+}, 60000);
+sessionCleanup.unref();
+function requirePatient(req, res, next) {
+  const token = (req.headers.authorization || '').replace(/^Bearer /, '');
+  const session = patientSessions.get(token);
+  if (!session || session.expires <= Date.now()) return res.status(401).json({success:false,message:'Please sign in again to manage appointments.'});
+  req.patientId = session.patientId;
+  next();
+}
 
 const cors = require('cors');
 
@@ -96,10 +110,39 @@ app.post('/api/patients', async (req, res) => {
 // 2. DOCTOR ENDPOINTS
 // ----------------------------------------------------
 
-// GET all doctors
+// GET all doctors (optionally filtered by branch)
 app.get('/api/doctors', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM DOCTOR;');
+    const { branchId } = req.query;
+    const params = [];
+    let where = '';
+
+    if (branchId !== undefined && branchId !== '') {
+      if (!/^[1-9]\d*$/.test(String(branchId))) {
+        return res.status(400).json({ success: false, message: 'branchId must be a positive integer.' });
+      }
+      where = 'WHERE d.branch_id = ?';
+      params.push(Number(branchId));
+    }
+
+    const [rows] = await pool.query(`
+      SELECT
+        d.doctor_id,
+        d.branch_id,
+        d.registration_no,
+        CONCAT(s.first_name, ' ', s.last_name) AS doctor_name,
+        b.name AS branch_name,
+        COALESCE(GROUP_CONCAT(DISTINCT sp.specialty_name ORDER BY sp.specialty_name SEPARATOR ', '), 'General medicine') AS specialties
+      FROM DOCTOR d
+      JOIN STAFF s ON s.staff_id = d.doctor_id
+      JOIN BRANCH b ON b.branch_id = d.branch_id
+      LEFT JOIN DOCTOR_SPECIALTY ds ON ds.doctor_id = d.doctor_id
+      LEFT JOIN SPECIALTY sp ON sp.specialty_id = ds.specialty_id
+      ${where}
+      GROUP BY d.doctor_id, d.branch_id, d.registration_no, s.first_name, s.last_name, b.name
+      ORDER BY b.name, s.first_name, s.last_name;
+    `, params);
+
     res.status(200).json({ success: true, count: rows.length, data: rows });
   } catch (error) {
     console.error('Error fetching doctors:', error.message);
@@ -162,9 +205,94 @@ app.get('/api/appointments', async (req, res) => {
   }
 });
 
-// book a new appoimentment
-//post /api/appointments - Create a new appointment
-// POST /api/appointments
+// Appointment availability for patient self-service booking.
+// Patients may choose ANY branch. Doctors are filtered to the selected branch.
+app.get('/api/appointments/availability', async (req, res) => {
+  try {
+    const { branchId, doctorId, date } = req.query;
+
+    if (!/^[1-9]\d*$/.test(String(branchId || '')) || !/^[1-9]\d*$/.test(String(doctorId || ''))) {
+      return res.status(400).json({ success: false, message: 'branchId and doctorId are required.' });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) {
+      return res.status(400).json({ success: false, message: 'date must be in YYYY-MM-DD format.' });
+    }
+
+    const [[doctor]] = await pool.query(
+      `SELECT d.doctor_id, d.branch_id, CONCAT(s.first_name, ' ', s.last_name) AS doctor_name
+       FROM DOCTOR d
+       JOIN STAFF s ON s.staff_id = d.doctor_id
+       WHERE d.doctor_id = ?`,
+      [Number(doctorId)]
+    );
+
+    if (!doctor) {
+      return res.status(404).json({ success: false, message: 'Doctor not found.' });
+    }
+    if (Number(doctor.branch_id) !== Number(branchId)) {
+      return res.status(400).json({ success: false, message: 'Selected doctor does not belong to the selected branch.' });
+    }
+
+    const [[clock]] = await pool.query('SELECT CURDATE() AS today, CURTIME() AS now_time');
+    if (String(date) < String(clock.today).slice(0, 10)) {
+      return res.status(400).json({ success: false, message: 'Appointments cannot be booked in the past.' });
+    }
+
+    const [busyRows] = await pool.query(
+      `SELECT scheduled_start, scheduled_end
+       FROM APPOINTMENT
+       WHERE doctor_id = ?
+         AND appointment_date = ?
+         AND status <> 'Cancelled'
+       ORDER BY scheduled_start`,
+      [Number(doctorId), date]
+    );
+
+    const toMinutes = (time) => {
+      const [h, m] = String(time).split(':').map(Number);
+      return h * 60 + m;
+    };
+    const toTime = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+
+    const busy = busyRows.map((row) => ({
+      start: toMinutes(row.scheduled_start),
+      end: toMinutes(row.scheduled_end),
+    }));
+
+    const today = String(clock.today).slice(0, 10);
+    const nowMinutes = toMinutes(clock.now_time);
+    const slots = [];
+    const slotMinutes = 30;
+    const opening = 9 * 60;
+    const closing = 17 * 60;
+
+    for (let start = opening; start + slotMinutes <= closing; start += slotMinutes) {
+      const end = start + slotMinutes;
+      const clashes = busy.some((range) => start < range.end && end > range.start);
+      const alreadyPassed = String(date) === today && start <= nowMinutes;
+      if (!clashes && !alreadyPassed) {
+        slots.push({ start: toTime(start), end: toTime(end) });
+      }
+    }
+
+    res.json({
+      success: true,
+      branchId: Number(branchId),
+      doctorId: Number(doctorId),
+      doctorName: doctor.doctor_name,
+      date,
+      slotMinutes,
+      data: slots,
+    });
+  } catch (error) {
+    console.error('Error fetching appointment availability:', error.message);
+    res.status(500).json({ success: false, message: 'Unable to load appointment availability.' });
+  }
+});
+
+// POST /api/appointments - Create a new appointment.
+// The patient is deliberately not tied to a branch: branch_id belongs to
+// the appointment, so the same patient may visit different branches.
 app.post('/api/appointments', async (req, res) => {
   try {
     const {
@@ -173,47 +301,130 @@ app.post('/api/appointments', async (req, res) => {
       branch_id,
       room_id = null,
       appointment_date,
-      scheduled_start, // Using standard schema name
-      scheduled_end,   // Using standard schema name
+      scheduled_start,
+      scheduled_end = null,
       status = 'Scheduled',
-      is_walkin = false
+      is_walkin = false,
     } = req.body;
 
-    // Check required fields
-    if (!patient_id || !doctor_id || !branch_id || !appointment_date || !scheduled_start || !scheduled_end) {
-      return res.status(400).json({
-        success: false,
-        message: 'Required fields missing: patient_id, doctor_id, branch_id, appointment_date, scheduled_start, and scheduled_end are required.'
-      });
+    const patientId = Number(patient_id);
+    const doctorId = Number(doctor_id);
+    const branchId = Number(branch_id);
+    const roomId = room_id === null || room_id === '' ? null : Number(room_id);
+
+    if (![patientId, doctorId, branchId].every(Number.isInteger) || patientId <= 0 || doctorId <= 0 || branchId <= 0) {
+      return res.status(400).json({ success: false, message: 'Valid patient, doctor and branch are required.' });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(appointment_date || ''))) {
+      return res.status(400).json({ success: false, message: 'appointment_date must be in YYYY-MM-DD format.' });
+    }
+    if (!/^\d{2}:\d{2}(?::\d{2})?$/.test(String(scheduled_start || ''))) {
+      return res.status(400).json({ success: false, message: 'scheduled_start must be a valid time.' });
     }
 
-    const sql = `
-      INSERT INTO APPOINTMENT 
-        (patient_id, doctor_id, branch_id, room_id, appointment_date, scheduled_start, scheduled_end, status, is_walkin)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
-    `;
+    const toMinutes = (time) => {
+      const [h, m] = String(time).split(':').map(Number);
+      if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+      return h * 60 + m;
+    };
+    const toTime = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}:00`;
 
-    const [result] = await pool.query(sql, [
-      patient_id,
-      doctor_id,
-      branch_id,
-      room_id,
-      appointment_date,
-      scheduled_start,
-      scheduled_end,
-      status,
-      is_walkin
-    ]);
+    const startMinutes = toMinutes(scheduled_start);
+    let endMinutes = scheduled_end ? toMinutes(scheduled_end) : startMinutes + 30;
+    if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
+      return res.status(400).json({ success: false, message: 'Appointment end time must be after the start time.' });
+    }
+    if (startMinutes < 9 * 60 || endMinutes > 17 * 60) {
+      return res.status(400).json({ success: false, message: 'Appointments must be within clinic hours (09:00-17:00).' });
+    }
+
+    const [[dateCheck]] = await pool.query('SELECT (? >= CURDATE()) AS valid_date', [appointment_date]);
+    if (!dateCheck.valid_date) {
+      return res.status(400).json({ success: false, message: 'Appointments cannot be booked in the past.' });
+    }
+
+    const [[patient]] = await pool.query('SELECT patient_id FROM PATIENT WHERE patient_id = ?', [patientId]);
+    if (!patient) {
+      return res.status(404).json({ success: false, message: 'Patient not found.' });
+    }
+
+    const [[branch]] = await pool.query('SELECT branch_id, name FROM BRANCH WHERE branch_id = ?', [branchId]);
+    if (!branch) {
+      return res.status(404).json({ success: false, message: 'Branch not found.' });
+    }
+
+    const [[doctor]] = await pool.query(
+      `SELECT d.doctor_id, d.branch_id, CONCAT(s.first_name, ' ', s.last_name) AS doctor_name
+       FROM DOCTOR d
+       JOIN STAFF s ON s.staff_id = d.doctor_id
+       WHERE d.doctor_id = ?`,
+      [doctorId]
+    );
+    if (!doctor) {
+      return res.status(404).json({ success: false, message: 'Doctor not found.' });
+    }
+    if (Number(doctor.branch_id) !== branchId) {
+      return res.status(400).json({ success: false, message: 'Selected doctor does not belong to the selected branch.' });
+    }
+
+    if (roomId !== null) {
+      if (!Number.isInteger(roomId) || roomId <= 0) {
+        return res.status(400).json({ success: false, message: 'Invalid room.' });
+      }
+      const [[room]] = await pool.query('SELECT room_id, branch_id FROM ROOM WHERE room_id = ?', [roomId]);
+      if (!room) {
+        return res.status(404).json({ success: false, message: 'Room not found.' });
+      }
+      if (Number(room.branch_id) !== branchId) {
+        return res.status(400).json({ success: false, message: 'Selected room does not belong to the selected branch.' });
+      }
+    }
+
+    const startTime = toTime(startMinutes);
+    const endTime = toTime(endMinutes);
+    const [[clash]] = await pool.query(
+      `SELECT COUNT(*) AS clash_count
+       FROM APPOINTMENT
+       WHERE doctor_id = ?
+         AND appointment_date = ?
+         AND status <> 'Cancelled'
+         AND ? < scheduled_end
+         AND ? > scheduled_start`,
+      [doctorId, appointment_date, startTime, endTime]
+    );
+    if (Number(clash.clash_count) > 0) {
+      return res.status(409).json({ success: false, message: 'That time slot was just taken. Please choose another available slot.' });
+    }
+
+    const [result] = await pool.query(
+      `INSERT INTO APPOINTMENT
+        (patient_id, doctor_id, branch_id, room_id, appointment_date, scheduled_start, scheduled_end, status, is_walkin)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [patientId, doctorId, branchId, roomId, appointment_date, startTime, endTime, status, Boolean(is_walkin)]
+    );
 
     res.status(201).json({
       success: true,
       message: 'Appointment booked successfully!',
-      appointmentId: result.insertId
+      appointmentId: result.insertId,
+      appointment: {
+        patient_id: patientId,
+        doctor_id: doctorId,
+        doctor_name: doctor.doctor_name,
+        branch_id: branchId,
+        branch_name: branch.name,
+        appointment_date,
+        scheduled_start: startTime,
+        scheduled_end: endTime,
+        status,
+      },
     });
-
   } catch (error) {
     console.error('Error booking appointment:', error.message);
-    res.status(500).json({ success: false, error: error.message });
+    if (error?.errno === 1644 || error?.sqlState === '45000') {
+      return res.status(409).json({ success: false, message: error.message });
+    }
+    res.status(500).json({ success: false, message: 'Unable to book the appointment.' });
   }
 });
 
@@ -320,10 +531,19 @@ app.get('/api/reports/branch-appointments/months', async (req, res) => {
 // Express Route: POST /api/patient/register
 app.post('/api/patient/register', async (req, res) => {
   const { nic, email, password } = req.body;
+  const normalizedNic = typeof nic === 'string' ? nic.trim() : '';
+  const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+
+  if (!normalizedNic || !normalizedEmail || typeof password !== 'string' || password.length < 6) {
+    return res.status(400).json({
+      success: false,
+      message: 'NIC, a valid email, and a password of at least 6 characters are required.'
+    });
+  }
 
   try {
     // 1. Verify that the NIC exists in the PATIENT table
-    const [patients] = await pool.query('SELECT patient_id FROM PATIENT WHERE nic = ?', [nic]);
+    const [patients] = await pool.query('SELECT patient_id FROM PATIENT WHERE nic = ?', [normalizedNic]);
     
     if (patients.length === 0) {
       return res.status(404).json({ 
@@ -337,7 +557,7 @@ app.post('/api/patient/register', async (req, res) => {
     // 2. Check if an account already exists for this patient or email
     const [existing] = await pool.query(
       'SELECT auth_id FROM PATIENT_AUTH WHERE patient_id = ? OR email = ?',
-      [patientId, email]
+      [patientId, normalizedEmail]
     );
 
     if (existing.length > 0) {
@@ -351,7 +571,7 @@ app.post('/api/patient/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     await pool.query(
       'INSERT INTO PATIENT_AUTH (patient_id, email, password_hash) VALUES (?, ?, ?)',
-      [patientId, email, hashedPassword]
+      [patientId, normalizedEmail, hashedPassword]
     );
 
     res.json({ success: true, message: 'Account successfully registered!' });
@@ -442,9 +662,12 @@ app.post('/api/auth/login', async (req, res) => {
 
     // Return patient details with role 'PATIENT'
     const { password_hash, ...patientProfile } = patient;
+    const token = randomBytes(32).toString('hex');
+    patientSessions.set(token, {patientId: patient.patient_id, expires: Date.now() + 8 * 60 * 60 * 1000});
     res.json({
       success: true,
       role: 'PATIENT',
+      token,
       user: patientProfile,
     });
   } catch (error) {
@@ -456,6 +679,24 @@ app.post('/api/auth/login', async (req, res) => {
 // ----------------------------------------------------
 // 5. PATIENT DASHBOARD ENDPOINT
 // ----------------------------------------------------
+
+// Ownership and eligibility are checked in the same atomic UPDATE.
+app.patch('/api/patient/appointments/:id/cancel', requirePatient, async (req, res) => {
+  if (!/^[1-9]\d*$/.test(req.params.id)) return res.status(400).json({success:false,message:'Invalid appointment ID.'});
+  try {
+    const [result] = await pool.query(
+      `UPDATE APPOINTMENT SET status = 'Cancelled'
+       WHERE appointment_id = ? AND patient_id = ? AND status = 'Scheduled'
+         AND TIMESTAMP(appointment_date, scheduled_start) > NOW()`,
+      [req.params.id, req.patientId]);
+    if (!result.affectedRows) return res.status(409).json({success:false,message:'This appointment cannot be cancelled. It may have started, changed status, or belong to another patient. Refresh your appointments.'});
+    res.json({success:true,message:'Appointment cancelled.'});
+  } catch (error) {
+    console.error('Cancellation failed:', error.message);
+    res.status(500).json({success:false,message:'Unable to cancel the appointment. Please try again.'});
+  }
+});
+
 app.get('/api/patients/:id/dashboard', async (req, res) => {
   try {
     const { id } = req.params;
@@ -489,7 +730,7 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
         a.scheduled_end,
         a.status,
         a.is_walkin,
-        (a.status = 'Scheduled' AND a.appointment_date >= CURDATE()) AS is_upcoming,
+        (a.status = 'Scheduled' AND TIMESTAMP(a.appointment_date, a.scheduled_start) > NOW()) AS is_upcoming,
         b.name AS branch_name,
         CONCAT(s.first_name, ' ', s.last_name) AS doctor_name,
         COALESCE(
@@ -505,8 +746,9 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
       JOIN DOCTOR d ON a.doctor_id = d.doctor_id
       JOIN STAFF s ON d.doctor_id = s.staff_id
       WHERE a.patient_id = ?
-      ORDER BY a.appointment_date ASC, a.scheduled_start ASC
-      LIMIT 15;
+      ORDER BY is_upcoming DESC,
+        CASE WHEN is_upcoming THEN TIMESTAMP(a.appointment_date,a.scheduled_start) END ASC,
+        a.appointment_date DESC, a.scheduled_start DESC;
     `, [id]);
 
     const [[visitSummary]] = await pool.query(
@@ -518,7 +760,7 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
     const [[upcomingSummary]] = await pool.query(
       `SELECT COUNT(*) AS upcoming_count
        FROM APPOINTMENT
-       WHERE patient_id = ? AND status = 'Scheduled' AND appointment_date >= CURDATE()`,
+       WHERE patient_id = ? AND status = 'Scheduled' AND TIMESTAMP(appointment_date, scheduled_start) > NOW()`,
       [id]
     );
     const nextAppt = apptRows
@@ -545,6 +787,10 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
 
       return {
         id: a.appointment_id,
+        canCancel: Boolean(a.is_upcoming),
+        start: String(a.scheduled_start).slice(0,5),
+        end: String(a.scheduled_end).slice(0,5),
+        walkIn: Boolean(a.is_walkin),
         day,
         month,
         year,
