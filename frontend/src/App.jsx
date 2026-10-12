@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import { api, checkBackend, fetchOverviewSummary, fetchReport,
          fetchBranches, fetchBranchMonths, fetchBranchAppointments,
-         fetchOutstandingBalances } from "./api";
+         fetchOutstandingBalances, fetchInsuranceCoverage } from "./api";
 
 import "./App.css";
 
@@ -520,6 +520,56 @@ function OutstandingBalancesReport() {
   );
 }
 
+function InsuranceCoverageReport() {
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState({ rows: [], total: 0, totalPages: 0, pageSize: 100 });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+
+    fetchInsuranceCoverage(page)
+      .then((res) => { if (!cancelled) setData(res); })
+      .catch(() => { if (!cancelled) setError("Could not load insurance coverage."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [page]);
+
+  function goToPage(p) {
+    setPage(p);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  const first = data.total === 0 ? 0 : (page - 1) * data.pageSize + 1;
+  const last = Math.min(page * data.pageSize, data.total);
+
+  return (
+    <section className="panel report-panel">
+      <div className="panel-heading">
+        <div><p className="eyebrow">REPORT RESULTS</p><h3>Insurance coverage</h3></div>
+      </div>
+
+      {error && <div className="notice">{error}</div>}
+
+      {loading ? (
+        <div className="empty-state">Loading...</div>
+      ) : (
+        <>
+          <p className="panel-note">
+            Showing {first}–{last} of {data.total.toLocaleString()} insurance claims, newest first
+          </p>
+          <ReportTable rows={data.rows} />
+          <Pagination page={page} totalPages={data.totalPages} onChange={goToPage} />
+        </>
+      )}
+    </section>
+  );
+}
+
 function App({ user, onLogout }) {
   const navigate = useNavigate();
   const [activeReport, setActiveReport] = useState("Overview");
@@ -541,6 +591,7 @@ function App({ user, onLogout }) {
     if (activeReport === "Overview") return;
     if (activeReport === "Branch appointments") return;
     if (activeReport === "Outstanding balances") return;
+    if (activeReport === "Insurance coverage") return;
 
     setLoading(true);
     setError("");
@@ -606,6 +657,8 @@ function App({ user, onLogout }) {
           <BranchAppointmentsReport />
         ) : activeReport === "Outstanding balances" ? (
           <OutstandingBalancesReport />
+        ) : activeReport === "Insurance coverage" ? (
+          <InsuranceCoverageReport />
         ) : (
           <section className="panel report-panel">
             <div className="panel-heading"><div><p className="eyebrow">REPORT RESULTS</p><h3>{activeReport}</h3></div>{usingDemoData && <span className="demo-badge">Demo data</span>}</div>

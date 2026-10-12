@@ -856,10 +856,29 @@ app.get('/api/reports/treatment-categories', async (req, res) => {
 });
 
 // GET /api/reports/insurance-coverage
+// Paginated like outstanding-balances: ?page=N returns 100 claims, newest
+// first, plus the totals the frontend needs to draw page buttons.
+// invoice_id is the sort key because each invoice currently has at most one
+// claim; if resubmitted claims are ever allowed, add claim_id to the view
+// and sort on that instead, or rows could repeat across pages.
 app.get('/api/reports/insurance-coverage', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM v_insurance_coverage LIMIT 100;');
-    res.json(rows);
+    const pageSize = 100;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const offset = (page - 1) * pageSize;
+
+    const [[{ total }]] = await pool.query(
+      'SELECT COUNT(*) AS total FROM v_insurance_coverage'
+    );
+
+    const [rows] = await pool.query(
+      `SELECT * FROM v_insurance_coverage
+       ORDER BY invoice_id DESC
+       LIMIT ? OFFSET ?`,
+      [pageSize, offset]
+    );
+
+    res.json({ rows, page, pageSize, total, totalPages: Math.ceil(total / pageSize) });
   } catch (e) {
     console.error('Error fetching insurance coverage:', e.message);
     res.status(500).json({ success: false, error: 'Database query failed' });
