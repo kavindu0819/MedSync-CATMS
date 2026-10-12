@@ -1,0 +1,44 @@
+-- 1. Appointment Table
+CREATE TABLE IF NOT EXISTS appointment (
+    appointment_id SERIAL PRIMARY KEY,
+    patient_id INT NOT NULL,
+    doctor_id INT NOT NULL,
+    branch_id INT NOT NULL,
+    scheduled_start TIMESTAMP NOT NULL,
+    scheduled_end TIMESTAMP NOT NULL,
+    status VARCHAR(20) DEFAULT 'Scheduled' CHECK (status IN ('Scheduled', 'Completed', 'Cancelled'))
+);
+
+-- 2. Treatment Catalogue
+CREATE TABLE IF NOT EXISTS treatment_catalogue (
+    treatment_id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    price NUMERIC(10,2) NOT NULL
+);
+
+-- 3. Appointment Treatments (Junction Table)
+CREATE TABLE IF NOT EXISTS appointment_treatment (
+    appointment_id INT REFERENCES appointment(appointment_id),
+    treatment_id INT REFERENCES treatment_catalogue(treatment_id),
+    price_at_service NUMERIC(10,2) NOT NULL,
+    quantity INT DEFAULT 1,
+    PRIMARY KEY (appointment_id, treatment_id)
+);
+
+-- 4. Invoice Table
+CREATE TABLE IF NOT EXISTS invoice (
+    invoice_id SERIAL PRIMARY KEY,
+    appointment_id INT REFERENCES appointment(appointment_id),
+    total_amount NUMERIC(10,2) NOT NULL,
+    total_paid NUMERIC(10,2) DEFAULT 0.00,
+    balance_due NUMERIC(10,2) NOT NULL,
+    status VARCHAR(20) DEFAULT 'Unpaid' CHECK (status IN ('Unpaid', 'Partially Paid', 'Paid'))
+);
+
+-- 5. Payment Table
+CREATE TABLE IF NOT EXISTS payment (
+    payment_id SERIAL PRIMARY KEY,
+    invoice_id INT REFERENCES invoice(invoice_id),
+    amount NUMERIC(10,2) NOT NULL,
+    payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
