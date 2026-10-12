@@ -731,10 +731,19 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
 // ----------------------------------------------------
 
 // GET /api/reports/doctor-revenue
+// v_doctor_revenue has one row per doctor per day. The report wants one row
+// per doctor, so the filters narrow the days first (WHERE) and the remaining
+// days are then added up per doctor (GROUP BY + SUM). No LIMIT: there is one
+// row per doctor, so the result is always small.
 app.get('/api/reports/doctor-revenue', async (req, res) => {
   try {
     const { doctor, from, to } = req.query;
-    let sql = 'SELECT * FROM v_doctor_revenue';
+    const isDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+    if ((from && !isDate(from)) || (to && !isDate(to))) {
+      return res.status(400).json({ success: false, error: 'from and to must look like 2026-01-31' });
+    }
+
     const conditions = [];
     const params = [];
 
@@ -751,10 +760,15 @@ app.get('/api/reports/doctor-revenue', async (req, res) => {
       params.push(to);
     }
 
-    if (conditions.length > 0) {
-      sql += ' WHERE ' + conditions.join(' AND ');
-    }
-    sql += ' ORDER BY date DESC LIMIT 100;';
+    const sql = `SELECT doctor,
+                        branch,
+                        SUM(consultations) AS consultations,
+                        SUM(treatments)    AS treatments,
+                        SUM(revenue)       AS revenue
+                 FROM v_doctor_revenue
+                 ${conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''}
+                 GROUP BY doctor, branch
+                 ORDER BY revenue DESC, doctor`;
 
     const [rows] = await pool.query(sql, params);
     res.json(rows);
