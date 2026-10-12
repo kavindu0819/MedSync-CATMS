@@ -779,23 +779,56 @@ app.get('/api/reports/outstanding-balances', async (req, res) => {
 app.get('/api/reports/treatment-categories', async (req, res) => {
   try {
     const { from, to } = req.query;
-    let sql = 'SELECT * FROM v_treatment_categories';
+    const isValidDate = (value) => {
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return false;
+      }
+      const date = new Date(`${value}T00:00:00.000Z`);
+      return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+    };
+
+    if ((from && !isValidDate(from)) || (to && !isValidDate(to))) {
+      return res.status(400).json({
+        success: false,
+        error: 'from and to must be valid dates in YYYY-MM-DD format',
+      });
+    }
+    if (from && to && from > to) {
+      return res.status(400).json({
+        success: false,
+        error: 'from must be earlier than or equal to to',
+      });
+    }
+
+    let sql = `
+      SELECT
+        tc.category_name AS category,
+        COUNT(att.appt_treatment_id) AS treatment_count,
+        COALESCE(SUM(att.price_snapshot), 0) AS treatment_value
+      FROM APPT_TREATMENT att
+      JOIN TREATMENT t ON t.treatment_id = att.treatment_id
+      JOIN TREATMENT_CATEGORY tc ON tc.category_id = t.category_id
+      JOIN APPOINTMENT a ON a.appointment_id = att.appointment_id
+    `;
     const conditions = [];
     const params = [];
 
     if (from) {
-      conditions.push('date >= ?');
+      conditions.push('a.appointment_date >= ?');
       params.push(from);
     }
     if (to) {
-      conditions.push('date <= ?');
+      conditions.push('a.appointment_date <= ?');
       params.push(to);
     }
 
     if (conditions.length > 0) {
       sql += ' WHERE ' + conditions.join(' AND ');
     }
-    sql += ' ORDER BY date DESC LIMIT 100;';
+    sql += `
+      GROUP BY tc.category_id, tc.category_name
+      ORDER BY treatment_count DESC, tc.category_name;
+    `;
 
     const [rows] = await pool.query(sql, params);
     res.json(rows);

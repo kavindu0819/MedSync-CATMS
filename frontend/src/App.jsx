@@ -70,7 +70,7 @@ function titleCase(value) {
 function formatCell(value, key) {
   if (value === null || value === undefined || value === "") return "-";
 
-  const moneyKey = /revenue|amount|total|paid|balance|outstanding|covered|pocket/i.test(key);
+  const moneyKey = /revenue|amount|total|paid|balance|outstanding|covered|pocket|value/i.test(key);
   if (typeof value === "number" && moneyKey) {
     return `LKR ${value.toLocaleString("en-LK", { minimumFractionDigits: 2 })}`;
   }
@@ -438,10 +438,16 @@ function App({ user, onLogout }) {
       const apiRows = normaliseRows(payload);
       setRows(apiRows);
     } catch (requestError) {
-      // This lets the UI remain usable before the backend teammate finishes the report APIs.
-      setRows(demoRows[activeReport] || []);
-      setUsingDemoData(true);
-      setError(requestError.response?.data?.message || "Report API is not available yet. Showing demo data.");
+      if (activeReport === "Treatment categories") {
+        setRows([]);
+        setUsingDemoData(false);
+        setError(requestError.response?.data?.message || requestError.response?.data?.error || "Could not load treatment category data from the database.");
+      } else {
+        // This lets the UI remain usable before the backend teammate finishes the report APIs.
+        setRows(demoRows[activeReport] || []);
+        setUsingDemoData(true);
+        setError(requestError.response?.data?.message || "Report API is not available yet. Showing demo data.");
+      }
     } finally {
       setLoading(false);
     }
