@@ -64,6 +64,11 @@ export async function fetchBranchAppointments(branchId, month) {
   return response.data;
 }
 
+export async function fetchOutstandingBalances(page) {
+  const response = await api.get("/reports/outstanding-balances", { params: { page } });
+  return response.data;
+}
+
 export async function checkBackend() {
   // The current backend already has this route in server.js.
   const response = await api.get("/doctors");
