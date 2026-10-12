@@ -1,0 +1,48 @@
+CREATE OR REPLACE PROCEDURE sp_CompleteAppointmentAndBill(
+    p_appointment_id INT,
+    p_treatments JSONB
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_patient_id INT;
+    v_invoice_id INT;
+    v_treatment RECORD;
+    v_price NUMERIC(10,2);
+    v_total NUMERIC(10,2) := 0;
+BEGIN
+    -- 1. Confirm and lock appointment
+    SELECT patient_id INTO v_patient_id
+    FROM appointment
+    WHERE appointment_id = p_appointment_id AND status = 'Scheduled'
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Appointment % is not in a Scheduled state.', p_appointment_id;
+    END IF;
+
+    -- 2. Mark as Completed
+    UPDATE appointment 
+    SET status = 'Completed' 
+    WHERE appointment_id = p_appointment_id;
+
+    -- 3. Log treatments and snapshot prices
+    FOR v_treatment IN SELECT * FROM jsonb_to_recordset(p_treatments) 
+        AS x(treatment_id INT, quantity INT)
+    LOOP
+        SELECT price INTO v_price 
+        FROM treatment_catalogue 
+        WHERE treatment_id = v_treatment.treatment_id;
+
+        INSERT INTO appointment_treatment(appointment_id, treatment_id, price_at_service, quantity)
+        VALUES (p_appointment_id, v_treatment.treatment_id, v_price, v_treatment.quantity);
+
+        v_total := v_total + (v_price * v_treatment.quantity);
+    END LOOP;
+
+    -- 4. Create the final invoice
+    INSERT INTO invoice(appointment_id, total_amount, total_paid, balance_due, status)
+    VALUES (p_appointment_id, v_total, 0.00, v_total, 'Unpaid')
+    RETURNING invoice_id INTO v_invoice_id;
+END;
+$$;

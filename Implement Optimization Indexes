@@ -1,0 +1,5 @@
+-- Index for quick slot-overlap lookups
+CREATE INDEX idx_appointment_doctor_time ON appointment(doctor_id, scheduled_start, scheduled_end);
+
+-- Partial index for fast query access to unpaid invoices
+CREATE INDEX idx_invoice_outstanding ON invoice(balance_due) WHERE balance_due > 0;

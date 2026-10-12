@@ -1,0 +1,11 @@
+-- 1. Insert sample treatments into catalog
+INSERT INTO treatment_catalogue (treatment_id, name, price) VALUES
+(101, 'Dental Cleaning', 5000.00),
+(102, 'X-Ray Scan', 3000.00);
+
+-- 2. Insert a valid initial appointment
+INSERT INTO appointment (patient_id, doctor_id, branch_id, scheduled_start, scheduled_end, status)
+VALUES (1, 5, 1, '2026-10-01 10:00:00', '2026-10-01 10:30:00', 'Scheduled');
+
+---------------------------------------------------------------------
+

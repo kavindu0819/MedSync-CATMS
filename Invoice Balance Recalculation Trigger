@@ -1,0 +1,29 @@
+CREATE OR REPLACE FUNCTION fn_update_invoice_after_payment()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_total_paid NUMERIC(10,2);
+    v_total_amount NUMERIC(10,2);
+BEGIN
+    SELECT COALESCE(SUM(amount), 0.00) INTO v_total_paid
+    FROM payment WHERE invoice_id = NEW.invoice_id;
+
+    SELECT total_amount INTO v_total_amount
+    FROM invoice WHERE invoice_id = NEW.invoice_id;
+
+    UPDATE invoice
+    SET total_paid = v_total_paid,
+        balance_due = v_total_amount - v_total_paid,
+        status = CASE 
+            WHEN v_total_paid >= v_total_amount THEN 'Paid'
+            WHEN v_total_paid > 0 THEN 'Partially Paid'
+            ELSE 'Unpaid'
+        END
+    WHERE invoice_id = NEW.invoice_id;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_update_invoice_on_payment
+AFTER INSERT ON payment
+FOR EACH ROW EXECUTE FUNCTION fn_update_invoice_after_payment();

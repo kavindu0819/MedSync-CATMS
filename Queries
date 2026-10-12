@@ -1,0 +1,92 @@
+-- Step 1: Define the function that recalculates balances
+CREATE OR REPLACE FUNCTION fn_update_invoice_after_payment()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_total_paid NUMERIC(10,2);
+    v_total_amount NUMERIC(10,2);
+BEGIN
+    -- Sum up all payments made for this invoice
+    SELECT COALESCE(SUM(amount), 0.00) INTO v_total_paid
+    FROM payment WHERE invoice_id = NEW.invoice_id;
+
+    -- Get the total cost of the invoice
+    SELECT total_amount INTO v_total_amount
+    FROM invoice WHERE invoice_id = NEW.invoice_id;
+
+    -- Update invoice fields automatically
+    UPDATE invoice
+    SET total_paid = v_total_paid,
+        balance_due = v_total_amount - v_total_paid,
+        status = CASE 
+            WHEN v_total_paid >= v_total_amount THEN 'Paid'
+            WHEN v_total_paid > 0 THEN 'Partially Paid'
+            ELSE 'Unpaid'
+        END
+    WHERE invoice_id = NEW.invoice_id;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Step 2: Attach the function to a trigger on the payment table
+CREATE TRIGGER trg_update_invoice_on_payment
+AFTER INSERT ON payment
+FOR EACH ROW EXECUTE FUNCTION fn_update_invoice_after_payment();
+
+----------------------------------------------------------------------
+
+CREATE OR REPLACE PROCEDURE sp_CompleteAppointmentAndBill(
+    p_appointment_id INT,
+    p_treatments JSONB
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_patient_id INT;
+    v_invoice_id INT;
+    v_treatment RECORD;
+    v_price NUMERIC(10,2);
+    v_total NUMERIC(10,2) := 0;
+BEGIN
+    -- 1. Check if the appointment exists and is currently 'Scheduled'
+    SELECT patient_id INTO v_patient_id
+    FROM appointment
+    WHERE appointment_id = p_appointment_id AND status = 'Scheduled'
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Appointment ID % is not found or is not in Scheduled state.', p_appointment_id;
+    END IF;
+
+    -- 2. Update appointment status to 'Completed'
+    UPDATE appointment 
+    SET status = 'Completed' 
+    WHERE appointment_id = p_appointment_id;
+
+    -- 3. Loop through the JSON list of treatments, insert each, and calculate total cost
+    FOR v_treatment IN SELECT * FROM jsonb_to_recordset(p_treatments) 
+        AS x(treatment_id INT, quantity INT)
+    LOOP
+        -- Get current catalog price for this treatment
+        SELECT price INTO v_price 
+        FROM treatment_catalogue 
+        WHERE treatment_id = v_treatment.treatment_id;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Treatment ID % does not exist in catalog.', v_treatment.treatment_id;
+        END IF;
+
+        -- Record treatment mapping and snapshot the price
+        INSERT INTO appointment_treatment(appointment_id, treatment_id, price_at_service, quantity)
+        VALUES (p_appointment_id, v_treatment.treatment_id, v_price, v_treatment.quantity);
+
+        -- Accumulate running total
+        v_total := v_total + (v_price * v_treatment.quantity);
+    END LOOP;
+
+    -- 4. Create the corresponding invoice for the patient
+    INSERT INTO invoice(appointment_id, total_amount, total_paid, balance_due, status)
+    VALUES (p_appointment_id, v_total, 0.00, v_total, 'Unpaid');
+
+END;
+$$;

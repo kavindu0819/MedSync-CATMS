@@ -1,0 +1,28 @@
+-- Testing Double-Booking Prevention Trigger
+INSERT INTO appointment (patient_id, doctor_id, branch_id, scheduled_start, scheduled_end, status)
+VALUES (2, 5, 1, '2026-10-01 10:15:00', '2026-10-01 10:45:00', 'Scheduled');
+
+----------------------------------------------------------------
+
+-- Testing Stored Procedure
+CALL sp_CompleteAppointmentAndBill(
+    1, 
+    '[{"treatment_id": 101, "quantity": 1}, {"treatment_id": 102, "quantity": 1}]'::jsonb
+);
+
+SELECT * FROM appointment WHERE appointment_id = 1;
+
+SELECT * FROM appointment_treatment WHERE appointment_id = 1;
+
+SELECT * FROM invoice WHERE appointment_id = 1;
+
+---------------------------------------------------------------
+
+--Testing  Payment & Invoice Balance Trigger
+INSERT INTO payment (invoice_id, amount) VALUES (1, 5000.00);
+
+SELECT * FROM invoice WHERE invoice_id = 1;
+
+INSERT INTO payment (invoice_id, amount) VALUES (1, 3000.00);
+
+SELECT * FROM invoice WHERE invoice_id = 1;
