@@ -63,3 +63,11 @@ td { color: #334155; }
 
 @media (max-width: 900px) { .sidebar { width: 210px; } .main-content { padding: 25px; } .summary-grid { grid-template-columns: repeat(2, 1fr); } .overview-grid { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .app-shell { display: block; } .sidebar { width: 100%; } .navigation { display: grid; grid-template-columns: repeat(2, 1fr); } .sidebar-footer { display: none; } .main-content { padding: 20px; } .topbar { align-items: flex-start; gap: 15px; } .summary-grid { grid-template-columns: 1fr; } }
+
+/* Pagination (Outstanding balances) */
+.pagination { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; margin-top: 24px; }
+.page-button { min-width: 38px; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: white; color: #334155; font-size: 14px; cursor: pointer; }
+.page-button:hover:not(:disabled) { border-color: #2563eb; color: #2563eb; }
+.page-button.active { border-color: #2563eb; background: #2563eb; color: white; }
+.page-button:disabled { opacity: 0.4; cursor: default; }
+.page-gap { padding: 0 4px; color: #94a3b8; }

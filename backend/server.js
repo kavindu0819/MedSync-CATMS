@@ -765,10 +765,27 @@ app.get('/api/reports/doctor-revenue', async (req, res) => {
 });
 
 // GET /api/reports/outstanding-balances
+// Paginated: ?page=N returns 100 rows plus the totals the frontend needs to
+// draw page buttons. invoice_id breaks ties so equal balances never appear
+// on two pages (or on none).
 app.get('/api/reports/outstanding-balances', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM v_outstanding_balances ORDER BY outstanding DESC LIMIT 100;');
-    res.json(rows);
+    const pageSize = 100;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const offset = (page - 1) * pageSize;
+
+    const [[{ total }]] = await pool.query(
+      'SELECT COUNT(*) AS total FROM v_outstanding_balances'
+    );
+
+    const [rows] = await pool.query(
+      `SELECT * FROM v_outstanding_balances
+       ORDER BY outstanding DESC, invoice_id
+       LIMIT ? OFFSET ?`,
+      [pageSize, offset]
+    );
+
+    res.json({ rows, page, pageSize, total, totalPages: Math.ceil(total / pageSize) });
   } catch (e) {
     console.error('Error fetching outstanding balances:', e.message);
     res.status(500).json({ success: false, error: 'Database query failed' });
