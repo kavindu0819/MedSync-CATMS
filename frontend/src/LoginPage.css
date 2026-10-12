@@ -536,3 +536,8 @@
     padding: 24px 18px 48px;
   }
 }
+/* Match dashboard branding; original 3D scene and login styling are preserved. */
+.login-page .login-page__logo { position:relative; font-size:0; color:transparent; background:linear-gradient(145deg,#5cafff,#2563eb 65%,#204da8); border:1px solid #82baff88; border-radius:12px; box-shadow:inset 0 1px 1px #ffffff77,0 5px 16px #1479ff44; }
+.login-page .login-page__logo::before,.login-page .login-page__logo::after { content:""; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); background:#f3f9ff; border-radius:2px; }
+.login-page .login-page__logo::before { width:22px; height:7px; }
+.login-page .login-page__logo::after { width:7px; height:22px; }

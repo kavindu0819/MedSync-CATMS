@@ -572,6 +572,14 @@ function InsuranceCoverageReport() {
 
 function App({ user, onLogout }) {
   const navigate = useNavigate();
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem("medsync-admin-theme") === "light" ? "light" : "dark"; }
+    catch { return "dark"; }
+  });
+  function changeTheme(nextTheme) {
+    setTheme(nextTheme);
+    try { localStorage.setItem("medsync-admin-theme", nextTheme); } catch { /* Keep session choice when storage is unavailable. */ }
+  }
   const [activeReport, setActiveReport] = useState("Overview");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -632,7 +640,7 @@ function App({ user, onLogout }) {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-theme={theme}>
       <aside className="sidebar">
         <div className="brand"><div className="brand-icon">M</div><div><h1>MedSync</h1><p>CATMS Dashboard</p></div></div>
         <nav className="navigation">
@@ -645,6 +653,10 @@ function App({ user, onLogout }) {
         <header className="topbar">
           <div><p className="eyebrow">MEDSYNC CATMS</p><h2>{activeReport}</h2></div>
           <div className="user-chip">
+            <div className="theme-switch" role="group" aria-label="Dashboard appearance">
+              <button type="button" aria-pressed={theme === "light"} onClick={() => changeTheme("light")}>Light</button>
+              <button type="button" aria-pressed={theme === "dark"} onClick={() => changeTheme("dark")}>Dark</button>
+            </div>
             <span className="user-avatar">{(user?.name || "Admin").charAt(0).toUpperCase()}</span>
             <span>{user?.name || "Administrator"}</span>
             <button className="logout-button" type="button" onClick={() => { onLogout(); navigate("/", { replace: true }); }}>Sign out</button>
