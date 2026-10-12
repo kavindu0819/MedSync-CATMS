@@ -796,6 +796,35 @@ app.get('/api/reports/outstanding-balances', async (req, res) => {
 app.get('/api/reports/treatment-categories', async (req, res) => {
   try {
     const { from, to } = req.query;
+    const pageSize = 100;
+    const requestedPage = req.query.page === undefined ? 1 : Number(req.query.page);
+    if (!Number.isSafeInteger(requestedPage) || requestedPage < 1) {
+      return res.status(400).json({
+        success: false,
+        error: 'page must be a positive integer',
+      });
+    }
+
+    const isValidDate = (value) => {
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return false;
+      }
+      const date = new Date(`${value}T00:00:00.000Z`);
+      return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+    };
+    if ((from && !isValidDate(from)) || (to && !isValidDate(to))) {
+      return res.status(400).json({
+        success: false,
+        error: 'from and to must be valid dates in YYYY-MM-DD format',
+      });
+    }
+    if (from && to && from > to) {
+      return res.status(400).json({
+        success: false,
+        error: 'from must be earlier than or equal to to',
+      });
+    }
+
     let sql = 'SELECT * FROM v_treatment_categories';
     const conditions = [];
     const params = [];
@@ -812,10 +841,21 @@ app.get('/api/reports/treatment-categories', async (req, res) => {
     if (conditions.length > 0) {
       sql += ' WHERE ' + conditions.join(' AND ');
     }
-    sql += ' ORDER BY date DESC LIMIT 100;';
 
-    const [rows] = await pool.query(sql, params);
-    res.json(rows);
+    const whereClause = conditions.length > 0
+      ? ` WHERE ${conditions.join(' AND ')}`
+      : '';
+    const [[{ total }]] = await pool.query(
+      `SELECT COUNT(*) AS total FROM v_treatment_categories${whereClause}`,
+      params
+    );
+    const totalPages = Math.ceil(total / pageSize);
+    const page = totalPages === 0 ? 1 : Math.min(requestedPage, totalPages);
+    const offset = (page - 1) * pageSize;
+
+    sql += ' ORDER BY date DESC, category ASC LIMIT ? OFFSET ?';
+    const [rows] = await pool.query(sql, [...params, pageSize, offset]);
+    res.json({ rows, page, pageSize, total, totalPages });
   } catch (e) {
     console.error('Error fetching treatment categories:', e.message);
     res.status(500).json({ success: false, error: 'Database query failed' });

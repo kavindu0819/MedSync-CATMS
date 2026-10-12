@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import { api, checkBackend, fetchOverviewSummary, fetchReport,
          fetchBranches, fetchBranchMonths, fetchBranchAppointments,
-         fetchOutstandingBalances } from "./api";
+         fetchOutstandingBalances, fetchTreatmentCategories } from "./api";
 
 import "./App.css";
 
@@ -71,9 +71,10 @@ function titleCase(value) {
 function formatCell(value, key) {
   if (value === null || value === undefined || value === "") return "-";
 
-  const moneyKey = /revenue|amount|total|paid|balance|outstanding|covered|pocket/i.test(key);
-  if (typeof value === "number" && moneyKey) {
-    return `LKR ${value.toLocaleString("en-LK", { minimumFractionDigits: 2 })}`;
+  const moneyKey = /revenue|amount|total|paid|balance|outstanding|covered|pocket|value/i.test(key);
+  const numericValue = typeof value === "number" ? value : Number(value);
+  if (moneyKey && Number.isFinite(numericValue)) {
+    return `LKR ${numericValue.toLocaleString("en-LK", { minimumFractionDigits: 2 })}`;
   }
 
   return String(value);
@@ -520,6 +521,77 @@ function OutstandingBalancesReport() {
   );
 }
 
+function TreatmentCategoriesReport() {
+  const [page, setPage] = useState(1);
+  const [draftFilters, setDraftFilters] = useState({ from: "", to: "" });
+  const [appliedFilters, setAppliedFilters] = useState({});
+  const [data, setData] = useState({ rows: [], total: 0, totalPages: 0, pageSize: 100 });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchTreatmentCategories(page, appliedFilters)
+      .then((res) => { if (!cancelled) setData(res); })
+      .catch((requestError) => {
+        if (!cancelled) {
+          setData({ rows: [], total: 0, totalPages: 0, pageSize: 100 });
+          setError(requestError.response?.data?.error || "Could not load treatment category data from the database.");
+        }
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [page, appliedFilters]);
+
+  function goToPage(nextPage) {
+    setLoading(true);
+    setError("");
+    setPage(nextPage);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function applyFilters() {
+    setLoading(true);
+    setError("");
+    setPage(1);
+    setAppliedFilters(Object.fromEntries(
+      Object.entries(draftFilters).filter(([, value]) => value)
+    ));
+  }
+
+  const first = data.total === 0 ? 0 : (page - 1) * data.pageSize + 1;
+  const last = Math.min(page * data.pageSize, data.total);
+
+  return (
+    <section className="panel report-panel">
+      <div className="panel-heading">
+        <div><p className="eyebrow">REPORT RESULTS</p><h3>Treatment categories</h3></div>
+      </div>
+      <FilterBar
+        reportName="Treatment categories"
+        values={draftFilters}
+        onChange={(field, value) => setDraftFilters((current) => ({ ...current, [field]: value }))}
+        onApply={applyFilters}
+      />
+      {error && <div className="notice">{error}</div>}
+      {loading ? (
+        <div className="empty-state">Loading...</div>
+      ) : (
+        <>
+          <p className="panel-note">
+            Showing {first}–{last} of {data.total.toLocaleString()} treatment category records, 100 per page
+          </p>
+          <ReportChart reportName="Treatment categories" rows={data.rows} />
+          <ReportTable rows={data.rows} />
+          <Pagination page={data.page || page} totalPages={data.totalPages} onChange={goToPage} />
+        </>
+      )}
+    </section>
+  );
+}
+
 function App({ user, onLogout }) {
   const navigate = useNavigate();
   const [activeReport, setActiveReport] = useState("Overview");
@@ -600,6 +672,8 @@ function App({ user, onLogout }) {
           <BranchAppointmentsReport />
         ) : activeReport === "Outstanding balances" ? (
           <OutstandingBalancesReport />
+        ) : activeReport === "Treatment categories" ? (
+          <TreatmentCategoriesReport />
         ) : (
           <section className="panel report-panel">
             <div className="panel-heading"><div><p className="eyebrow">REPORT RESULTS</p><h3>{activeReport}</h3></div>{usingDemoData && <span className="demo-badge">Demo data</span>}</div>
