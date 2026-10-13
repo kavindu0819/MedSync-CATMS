@@ -18,7 +18,7 @@ export async function authenticate(email, password) {
   const result = response.data;
   if (
     !result?.success ||
-    !["ADMIN", "FRONTDESK", "PATIENT"].includes(result.role) ||
+    !["ADMIN", "FRONTDESK", "DOCTOR", "PATIENT"].includes(result.role) ||
     !result.user
   ) {
     throw new Error("The server returned an invalid sign-in response.");

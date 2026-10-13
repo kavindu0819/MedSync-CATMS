@@ -261,6 +261,88 @@ app.get('/api/appointments', async (req, res) => {
   }
 });
 
+// GET /api/doctor/appointments?scope=today|upcoming|past
+// Only the signed-in doctor's own appointments: the doctor comes from the
+// session (staff_id = doctor_id), never from the URL, so one doctor cannot
+// read another doctor's list. upcoming/past are capped at 100 rows.
+const DOCTOR_SCOPES = {
+  today:    { where: 'a.appointment_date = ?', order: 'a.scheduled_start ASC' },
+  upcoming: { where: 'a.appointment_date >= ?', order: 'a.appointment_date ASC, a.scheduled_start ASC' },
+  past:     { where: 'a.appointment_date < ?', order: 'a.appointment_date DESC, a.scheduled_start DESC' },
+};
+
+app.get('/api/doctor/appointments', requireRole('DOCTOR'), async (req, res) => {
+  try {
+    const scope = req.query.scope || 'upcoming';
+    const rule = DOCTOR_SCOPES[scope];
+    if (!rule) {
+      return res.status(400).json({ success: false, message: 'scope must be today, upcoming or past' });
+    }
+
+    // Today's date on this machine (Sri Lanka time), not the database's UTC clock.
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    const [rows] = await pool.query(
+      `SELECT a.appointment_id,
+              a.appointment_date AS date,
+              TIME_FORMAT(a.scheduled_start, '%H:%i') AS start,
+              TIME_FORMAT(a.scheduled_end, '%H:%i')   AS end,
+              a.status,
+              a.is_walkin,
+              p.patient_id,
+              CONCAT(p.first_name, ' ', p.last_name) AS patient,
+              b.name AS branch
+       FROM APPOINTMENT a
+       JOIN PATIENT p ON p.patient_id = a.patient_id
+       JOIN BRANCH b  ON b.branch_id  = a.branch_id
+       WHERE a.doctor_id = ? AND ${rule.where}
+       ORDER BY ${rule.order}
+       LIMIT 100`,
+      [req.session.staffId, today]
+    );
+
+    res.json({ success: true, scope, today, appointments: rows });
+  } catch (error) {
+    console.error('Error fetching doctor appointments:', error.message);
+    res.status(500).json({ success: false, message: 'Could not load your appointments.' });
+  }
+});
+
+// PATCH /api/doctor/appointments/:id/complete
+// The signed-in doctor marks one of their own appointments Completed. All the
+// rules are in the WHERE clause, so it changes nothing unless the appointment
+// is theirs, still Scheduled, and has already started (Sri Lanka time).
+// trg_appointment_audit (05_triggers.sql) records the change automatically.
+app.patch('/api/doctor/appointments/:id/complete', requireRole('DOCTOR'), async (req, res) => {
+  if (!/^[1-9]\d*$/.test(req.params.id)) {
+    return res.status(400).json({ success: false, message: 'Invalid appointment ID.' });
+  }
+  try {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const localNow = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+
+    const [result] = await pool.query(
+      `UPDATE APPOINTMENT SET status = 'Completed'
+       WHERE appointment_id = ? AND doctor_id = ? AND status = 'Scheduled'
+         AND TIMESTAMP(appointment_date, scheduled_start) <= ?`,
+      [req.params.id, req.session.staffId, localNow]
+    );
+
+    if (!result.affectedRows) {
+      return res.status(409).json({
+        success: false,
+        message: 'This appointment cannot be completed. It may not have started yet, already be completed or cancelled, or belong to another doctor.',
+      });
+    }
+    res.json({ success: true, message: 'Appointment marked as completed.' });
+  } catch (error) {
+    console.error('Error completing appointment:', error.message);
+    res.status(500).json({ success: false, message: 'Could not update the appointment. Please try again.' });
+  }
+});
+
 // Appointment availability for patient self-service booking.
 // Patients may choose ANY branch. Doctors are filtered to the selected branch.
 app.get('/api/appointments/availability', async (req, res) => {
@@ -682,8 +764,12 @@ app.post('/api/auth/login', async (req, res) => {
       if (password === 'admin123' || password === 'staff123') {
         const staff = staffRows[0];
         // Receptionists run the front desk: they may add patients and view the
-        // Overview, nothing else. Every other staff role keeps admin access.
-        const role = staff.role === 'Receptionist' ? 'FRONTDESK' : 'ADMIN';
+        // Overview, nothing else. Doctors get their own DOCTOR role (staff_id is
+        // also their doctor_id, see DOCTOR in 01_schema.sql). Every other staff
+        // role keeps admin access.
+        const role = staff.role === 'Receptionist' ? 'FRONTDESK'
+          : staff.role === 'Doctor' ? 'DOCTOR'
+          : 'ADMIN';
         return res.json({
           success: true,
           role,

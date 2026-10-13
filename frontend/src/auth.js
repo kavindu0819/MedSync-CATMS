@@ -8,7 +8,7 @@ export function getSession() {
     const session = JSON.parse(saved);
     if (
       session?.success &&
-      ["ADMIN", "FRONTDESK", "PATIENT"].includes(session.role) &&
+      ["ADMIN", "FRONTDESK", "DOCTOR", "PATIENT"].includes(session.role) &&
       session.user
     ) {
       return session;
@@ -34,5 +34,7 @@ export function clearSession() {
 }
 
 export function dashboardPath(role) {
-  return role === "PATIENT" ? "/patient" : "/admin";
+  if (role === "PATIENT") return "/patient";
+  if (role === "DOCTOR") return "/doctor";
+  return "/admin";
 }

@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import './index.css'
 import App from './App.jsx'
 import PatientDashboard from './PatientDashboard.jsx'
+import DoctorDashboard from './DoctorDashboard.jsx'
 import LoginPage from './LoginPage.jsx'
 import { clearSession, getSession } from './auth.js'
 import RoleRoute from './RoleRoute.jsx'
@@ -11,6 +12,11 @@ import RoleRoute from './RoleRoute.jsx'
 function AdminRouteWrapper() {
   const session = getSession();
   return <App user={session?.user} role={session?.role} onLogout={clearSession} />;
+}
+
+function DoctorRouteWrapper() {
+  const session = getSession();
+  return <DoctorDashboard user={session?.user} onLogout={clearSession} />;
 }
 
 function PatientRouteWrapper() {
@@ -35,6 +41,14 @@ createRoot(document.getElementById('root')).render(
           element={
             <RoleRoute role={["ADMIN", "FRONTDESK"]}>
               <AdminRouteWrapper />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="/doctor"
+          element={
+            <RoleRoute role="DOCTOR">
+              <DoctorRouteWrapper />
             </RoleRoute>
           }
         />
