@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import DashboardSidebar from "./DashboardSidebar";
 import { useDashboardTheme } from "./useDashboardTheme";
-import { fetchDoctorAppointments } from "./api";
+import { completeDoctorAppointment, fetchDoctorAppointments } from "./api";
 import { DashboardIcon } from "./icons";
 import "./App.css";
 // Reuses the patient dashboard's appointment list and filter styles (.pd .appt…).
@@ -34,10 +34,17 @@ function dateParts(value) {
   };
 }
 
+// Same rule as the server: only a Scheduled appointment that has already started.
+function canComplete(a) {
+  return a.status === "Scheduled" && new Date(`${a.date}T${a.start}`) <= new Date();
+}
+
 function AppointmentList({ scope }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState(null);       // appointment being saved
+  const [actionError, setActionError] = useState(""); // a failed "Mark completed"
 
   // No reset needed here: the parent gives this list key={scope}, so React
   // starts a fresh list (loading = true) whenever the scope button changes.
@@ -52,32 +59,59 @@ function AppointmentList({ scope }) {
     return () => { cancelled = true; };
   }, [scope]);
 
+  async function markCompleted(id) {
+    setBusyId(id);
+    setActionError("");
+    try {
+      await completeDoctorAppointment(id);
+      // Update just this row instead of reloading the whole list.
+      setRows((current) => current.map((a) => (a.appointment_id === id ? { ...a, status: "Completed" } : a)));
+    } catch (err) {
+      setActionError(err.response?.data?.message || "Could not update the appointment. Please try again.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   if (loading) return <div className="empty-state">Loading appointments…</div>;
   if (error) return <div className="notice" role="alert">{error}</div>;
   if (!rows.length) return <div className="empty-state">{EMPTY_MESSAGE[scope]}</div>;
 
   return (
-    <ul className="appts">
-      {rows.map((a) => {
-        const { day, month, year } = dateParts(a.date);
-        return (
-          <li key={a.appointment_id} className="appt">
-            <div className="appt__date">
-              <div className="appt__day">{day}</div>
-              <div className="appt__month">{month}</div>
-              <div className="appt__year">{year}</div>
-            </div>
-            <div className="appt__info">
-              <div className="appt__doctor">{a.patient}</div>
-              <div className="appt__meta">
-                {a.branch} · {a.status}{a.is_walkin ? " · Walk-in" : ""}
+    <>
+      {actionError && <div className="notice" role="alert">{actionError}</div>}
+      <ul className="appts">
+        {rows.map((a) => {
+          const { day, month, year } = dateParts(a.date);
+          return (
+            <li key={a.appointment_id} className="appt">
+              <div className="appt__date">
+                <div className="appt__day">{day}</div>
+                <div className="appt__month">{month}</div>
+                <div className="appt__year">{year}</div>
               </div>
-            </div>
-            <div className="appt__time">{a.start} – {a.end}</div>
-          </li>
-        );
-      })}
-    </ul>
+              <div className="appt__info">
+                <div className="appt__doctor">{a.patient}</div>
+                <div className="appt__meta">
+                  {a.branch} · {a.status}{a.is_walkin ? " · Walk-in" : ""}
+                </div>
+              </div>
+              <div className="appt__time">{a.start} – {a.end}</div>
+              {canComplete(a) && (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={busyId !== null}
+                  onClick={() => markCompleted(a.appointment_id)}
+                >
+                  {busyId === a.appointment_id ? "Saving…" : "Mark completed"}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 

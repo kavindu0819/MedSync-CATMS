@@ -115,6 +115,12 @@ export async function fetchDoctorAppointments(scope) {
   return response.data.appointments;
 }
 
+// Doctor only: mark one of their own started, Scheduled appointments Completed.
+export async function completeDoctorAppointment(appointmentId) {
+  const response = await api.patch(`/doctor/appointments/${appointmentId}/complete`);
+  return response.data;
+}
+
 export async function checkBackend() {
   // The current backend already has this route in server.js.
   const response = await api.get("/doctors");
