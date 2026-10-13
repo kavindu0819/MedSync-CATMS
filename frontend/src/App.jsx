@@ -80,7 +80,6 @@ function formatCell(value, key) {
 }
 
 function normaliseRows(payload) {
-  // Different backend implementations commonly use one of these response shapes.
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.data)) return payload.data;
   if (Array.isArray(payload?.rows)) return payload.rows;
@@ -165,37 +164,6 @@ function ReportChart({ reportName, rows }) {
   );
 }
 
-function FilterBar({ reportName, values, onChange, onApply }) {
-  const fields = filterDefinitions[reportName] || [];
-  if (!fields.length) return null;
-
-  return (
-    <form className="filter-bar" onSubmit={(event) => { event.preventDefault(); onApply(); }}>
-      {fields.map((field) => (
-        <label key={field}>
-          <span>{titleCase(field)}</span>
-          {field === "branch" ? (
-            <select value={values[field]} onChange={(event) => onChange(field, event.target.value)}>
-              <option value="">All branches</option>
-              <option value="Colombo">Colombo</option>
-              <option value="Kandy">Kandy</option>
-              <option value="Galle">Galle</option>
-            </select>
-          ) : (
-            <input
-              type={field === "doctor" ? "text" : "date"}
-              value={values[field]}
-              placeholder={field === "doctor" ? "Doctor ID or name" : "Choose date"}
-              onChange={(event) => onChange(field, event.target.value)}
-            />
-          )}
-        </label>
-      ))}
-      <button className="primary-button" type="submit">Apply filters</button>
-    </form>
-  );
-}
-
 function Overview({ backendStatus, onSelectReport }) {
   const [chartRows, setChartRows] = useState([]);
   const [stats, setStats] = useState(null);
@@ -260,7 +228,6 @@ function Overview({ backendStatus, onSelectReport }) {
         <div className="summary-card"><span>Total billed</span><strong>LKR {Number(stats?.total_billed ?? 0).toLocaleString()}</strong><small>Current billing summary</small></div>
         <div className="summary-card"><span>Total paid</span><strong>LKR {Number(stats?.total_collected ?? 0).toLocaleString()}</strong><small>Current collection summary</small></div>
         <div className="summary-card"><span>Outstanding</span><strong>LKR {Number(stats?.outstanding_balance ?? 0).toLocaleString()}</strong><small>Current outstanding balance</small></div>
-        {/* <div className="summary-card"><span>Reports</span><strong>5</strong><small>Available report pages</small></div> */}
       </section>
 
       <section className="overview-grid">
@@ -346,7 +313,6 @@ function BranchAppointmentsReport() {
     cancelled: Number(r.cancelled),
   }));
 
-
   return (
     <section className="panel">
       <div className="panel-heading">
@@ -409,10 +375,6 @@ function BranchAppointmentsReport() {
   );
 }
 
-// Which page numbers to show: always the first and last, plus the pages
-// either side of the current one, with "…" where pages are skipped.
-//   page 1 of 23  ->  1 2 … 23
-//   page 6 of 23  ->  1 … 5 6 7 … 23
 function pageNumbers(current, total) {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
 
@@ -570,6 +532,24 @@ function InsuranceCoverageReport() {
   );
 }
 
+// Dedicated Doctor Dashboard View Component
+function DoctorDashboardView() {
+  return (
+    <section className="panel">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">DOCTOR PORTAL</p>
+          <h3>Doctor Schedule & Patient Consultations</h3>
+        </div>
+      </div>
+      <div className="empty-state" style={{ padding: "40px" }}>
+        <h3>Welcome, Doctor</h3>
+        <p>Your upcoming appointments, patient queues, and medical records will appear here.</p>
+      </div>
+    </section>
+  );
+}
+
 function App({ user, onLogout }) {
   const navigate = useNavigate();
   const [theme, setTheme] = useState(() => {
@@ -580,6 +560,9 @@ function App({ user, onLogout }) {
     setTheme(nextTheme);
     try { localStorage.setItem("medsync-admin-theme", nextTheme); } catch { /* Keep session choice when storage is unavailable. */ }
   }
+
+  const isDoctor = user?.role === "doctor" || (user?.email && user.email.includes("doctor"));
+
   const [activeReport, setActiveReport] = useState("Overview");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -596,6 +579,7 @@ function App({ user, onLogout }) {
   }, []);
 
   const loadReport = useCallback(async () => {
+    if (isDoctor) return;
     if (activeReport === "Overview") return;
     if (activeReport === "Branch appointments") return;
     if (activeReport === "Outstanding balances") return;
@@ -615,7 +599,6 @@ function App({ user, onLogout }) {
         setUsingDemoData(false);
         setError(requestError.response?.data?.message || requestError.response?.data?.error || "Could not load treatment category data from the database.");
       } else {
-        // This lets the UI remain usable before the backend teammate finishes the report APIs.
         setRows(demoRows[activeReport] || []);
         setUsingDemoData(true);
         setError(requestError.response?.data?.message || "Report API is not available yet. Showing demo data.");
@@ -623,7 +606,7 @@ function App({ user, onLogout }) {
     } finally {
       setLoading(false);
     }
-  }, [activeReport, appliedFilters]);
+  }, [activeReport, appliedFilters, isDoctor]);
 
   useEffect(() => {
     loadReport();
@@ -635,35 +618,37 @@ function App({ user, onLogout }) {
     setAppliedFilters({});
   }
 
-  function updateFilter(field, value) {
-    setDraftFilters((current) => ({ ...current, [field]: value }));
-  }
-
   return (
     <div className="app-shell" data-theme={theme}>
       <aside className="sidebar">
-        <div className="brand"><div className="brand-icon">M</div><div><h1>MedSync</h1><p>CATMS Dashboard</p></div></div>
+        <div className="brand"><div className="brand-icon">M</div><div><h1>MedSync</h1><p>{isDoctor ? "Doctor Portal" : "CATMS Dashboard"}</p></div></div>
         <nav className="navigation">
-          {reportNames.map((report) => <button key={report} className={activeReport === report ? "nav-item active" : "nav-item"} onClick={() => selectReport(report)}>{report}</button>)}
+          {isDoctor ? (
+            <button className="nav-item active">Consultations</button>
+          ) : (
+            reportNames.map((report) => <button key={report} className={activeReport === report ? "nav-item active" : "nav-item"} onClick={() => selectReport(report)}>{report}</button>)
+          )}
         </nav>
         <div className="sidebar-footer"><p>Clinic management system</p><span>Frontend v1.0</span></div>
       </aside>
 
       <main className="main-content">
         <header className="topbar">
-          <div><p className="eyebrow">MEDSYNC CATMS</p><h2>{activeReport}</h2></div>
+          <div><p className="eyebrow">MEDSYNC CATMS</p><h2>{isDoctor ? "Doctor Dashboard" : activeReport}</h2></div>
           <div className="user-chip">
             <div className="theme-switch" role="group" aria-label="Dashboard appearance">
               <button type="button" aria-pressed={theme === "light"} onClick={() => changeTheme("light")}>Light</button>
               <button type="button" aria-pressed={theme === "dark"} onClick={() => changeTheme("dark")}>Dark</button>
             </div>
-            <span className="user-avatar">{(user?.name || "Admin").charAt(0).toUpperCase()}</span>
-            <span>{user?.name || "Administrator"}</span>
+            <span className="user-avatar">{(user?.name || (isDoctor ? "Doctor" : "Admin")).charAt(0).toUpperCase()}</span>
+            <span>{user?.name || (isDoctor ? "Doctor User" : "Administrator")}</span>
             <button className="logout-button" type="button" onClick={() => { onLogout(); navigate("/", { replace: true }); }}>Sign out</button>
           </div>
         </header>
 
-        {activeReport === "Overview" ? (
+        {isDoctor ? (
+          <DoctorDashboardView />
+        ) : activeReport === "Overview" ? (
           <Overview backendStatus={backendStatus} onSelectReport={selectReport} />
         ) : activeReport === "Branch appointments" ? (
           <BranchAppointmentsReport />

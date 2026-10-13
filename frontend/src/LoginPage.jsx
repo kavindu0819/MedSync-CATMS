@@ -38,6 +38,9 @@ export default function LoginPage() {
     if (role === "admin") {
       setEmail("admins@medsync.lk");
       setPassword("admin123");
+    } else if (role === "doctor") {
+      setEmail("doctor@medsync.lk");
+      setPassword("doctor123");
     } else {
       setEmail("patient4@medsync.lk");
       setPassword("patient123");
@@ -48,7 +51,8 @@ export default function LoginPage() {
   const normalizedTypedEmail = email.trim().toLowerCase();
   const isAdminEmail =
     normalizedTypedEmail.includes("admin") ||
-    normalizedTypedEmail.endsWith("@medsync.lk") && !normalizedTypedEmail.includes("patient");
+    (normalizedTypedEmail.endsWith("@medsync.lk") && !normalizedTypedEmail.includes("patient") && !normalizedTypedEmail.includes("doctor"));
+
   async function handleLoginSubmit(event) {
     event.preventDefault();
     setError("");
@@ -173,6 +177,14 @@ export default function LoginPage() {
                   title="Fills admin email & password"
                 >
                   👔 Admin Demo
+                </button>
+                <button
+                  type="button"
+                  className="demo-chip demo-chip--doctor"
+                  onClick={() => handleSelectDemo("doctor")}
+                  title="Fills doctor email & password"
+                >
+                  🩺 Doctor Demo
                 </button>
                 <button
                   type="button"
