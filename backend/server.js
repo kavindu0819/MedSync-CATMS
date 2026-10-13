@@ -682,8 +682,12 @@ app.post('/api/auth/login', async (req, res) => {
       if (password === 'admin123' || password === 'staff123') {
         const staff = staffRows[0];
         // Receptionists run the front desk: they may add patients and view the
-        // Overview, nothing else. Every other staff role keeps admin access.
-        const role = staff.role === 'Receptionist' ? 'FRONTDESK' : 'ADMIN';
+        // Overview, nothing else. Doctors get their own DOCTOR role (staff_id is
+        // also their doctor_id, see DOCTOR in 01_schema.sql). Every other staff
+        // role keeps admin access.
+        const role = staff.role === 'Receptionist' ? 'FRONTDESK'
+          : staff.role === 'Doctor' ? 'DOCTOR'
+          : 'ADMIN';
         return res.json({
           success: true,
           role,
