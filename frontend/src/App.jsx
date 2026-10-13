@@ -12,12 +12,28 @@ import {
 } from "recharts";
 import { api, checkBackend, fetchOverviewSummary, fetchReport,
          fetchBranches, fetchBranchMonths, fetchBranchAppointments,
-         fetchOutstandingBalances, fetchInsuranceCoverage } from "./api";
+         fetchOutstandingBalances, fetchInsuranceCoverage, createPatient } from "./api";
+
+import DashboardSidebar from "./DashboardSidebar";
+import { useDashboardTheme } from "./useDashboardTheme";
+import {
+  TAB_ICONS, UsersIcon, CalendarIcon, BuildingIcon,
+  StethoscopeIcon, ReceiptIcon, CoinsIcon, ClockIcon,
+} from "./icons";
 
 import "./App.css";
 
+// Chart colours, matching the green dashboard theme in App.css.
+const CHART = {
+  completed: "#22b04f",
+  scheduled: "#3b8bf6",
+  cancelled: "#f2557a",
+  single: "#22b04f",
+};
+
 const reportNames = [
   "Overview",
+  "Patients",
   "Branch appointments",
   "Doctor revenue",
   "Outstanding balances",
@@ -153,11 +169,11 @@ function ReportChart({ reportName, rows }) {
       <h3>{reportName} chart</h3>
       <ResponsiveContainer width="100%" height={280}>
         <BarChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <CartesianGrid vertical={false} />
           <XAxis dataKey="name" />
           <YAxis />
           <Tooltip />
-          <Bar dataKey={valueKey} fill="#2563eb" radius={[6, 6, 0, 0]} />
+          <Bar dataKey={valueKey} fill={CHART.single} radius={[6, 6, 0, 0]} maxBarSize={48} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -235,11 +251,11 @@ function Overview({ backendStatus, onSelectReport }) {
           <div className="panel-heading"><div><p className="eyebrow">APPOINTMENTS</p><h3>Branch activity</h3></div></div>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={chartRows}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <CartesianGrid vertical={false} />
               <XAxis dataKey="branch" /><YAxis /><Tooltip />
-              <Bar dataKey="completed" fill="#2563eb" radius={[6, 6, 0, 0]} />
-              <Bar dataKey="scheduled" fill="#93c5fd" radius={[6, 6, 0, 0]} />
-              <Bar dataKey="cancelled" fill="#f87171" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="completed" fill={CHART.completed} radius={[6, 6, 0, 0]} maxBarSize={34} />
+              <Bar dataKey="scheduled" fill={CHART.scheduled} radius={[6, 6, 0, 0]} maxBarSize={34} />
+              <Bar dataKey="cancelled" fill={CHART.cancelled} radius={[6, 6, 0, 0]} maxBarSize={34} />
               <Legend />
             </BarChart>
           </ResponsiveContainer>
@@ -252,8 +268,14 @@ function Overview({ backendStatus, onSelectReport }) {
             <div><span className="dot orange"></span><span>Report APIs</span><strong>confirm with team</strong></div>
             <div><span className="dot green"></span><span>Frontend</span><strong>running</strong></div>
           </div>
-          <p className="panel-note">Select a report from the menu. Demo rows are replaced automatically when the backend returns real rows.</p>
-          <button className="secondary-button" onClick={() => onSelectReport("Branch appointments")}>Open first report</button>
+          {onSelectReport ? (
+            <>
+              <p className="panel-note">Select a report from the menu. Demo rows are replaced automatically when the backend returns real rows.</p>
+              <button className="secondary-button" onClick={() => onSelectReport("Branch appointments")}>Open first report</button>
+            </>
+          ) : (
+            <p className="panel-note">Use Patients in the menu to register someone new at the front desk.</p>
+          )}
         </div>
       </section>
     </>
@@ -357,14 +379,14 @@ function BranchAppointmentsReport() {
           <div className="chart-box">
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid vertical={false} />
                 <XAxis dataKey="day" />
                 <YAxis allowDecimals={false} />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="completed" stackId="a" fill="#2563eb" />
-                <Bar dataKey="scheduled" stackId="a" fill="#93c5fd" />
-                <Bar dataKey="cancelled" stackId="a" fill="#f87171" />
+                <Bar dataKey="completed" stackId="a" fill={CHART.completed} />
+                <Bar dataKey="scheduled" stackId="a" fill={CHART.scheduled} />
+                <Bar dataKey="cancelled" stackId="a" fill={CHART.cancelled} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -581,6 +603,7 @@ function App({ user, onLogout }) {
   const loadReport = useCallback(async () => {
     if (isDoctor) return;
     if (activeReport === "Overview") return;
+    if (activeReport === "Patients") return;
     if (activeReport === "Branch appointments") return;
     if (activeReport === "Outstanding balances") return;
     if (activeReport === "Insurance coverage") return;

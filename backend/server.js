@@ -3,18 +3,46 @@ const express = require('express');
 const pool = require('./docker_connect'); // Imports your database connection pool
 const bcrypt = require('bcryptjs');
 const { randomBytes } = require('node:crypto');
-// Opaque, short-lived patient sessions for appointment management.
-const patientSessions = new Map();
+// Opaque, short-lived sessions for every signed-in user. Each login gets a
+// random token; the browser sends it back as "Authorization: Bearer <token>"
+// and the server looks up who it belongs to. Kept in memory, so restarting
+// the backend signs everyone out.
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const sessions = new Map(); // token -> { role, patientId?, staffId?, expires }
 const sessionCleanup = setInterval(() => {
-  for (const [token, session] of patientSessions) if (session.expires <= Date.now()) patientSessions.delete(token);
+  for (const [token, session] of sessions) if (session.expires <= Date.now()) sessions.delete(token);
 }, 60000);
 sessionCleanup.unref();
-function requirePatient(req, res, next) {
+
+function createSession(details) {
+  const token = randomBytes(32).toString('hex');
+  sessions.set(token, { ...details, expires: Date.now() + SESSION_TTL_MS });
+  return token;
+}
+
+function readSession(req) {
   const token = (req.headers.authorization || '').replace(/^Bearer /, '');
-  const session = patientSessions.get(token);
-  if (!session || session.expires <= Date.now()) return res.status(401).json({success:false,message:'Please sign in again to manage appointments.'});
+  const session = sessions.get(token);
+  return session && session.expires > Date.now() ? session : null;
+}
+
+function requirePatient(req, res, next) {
+  const session = readSession(req);
+  if (!session || session.role !== 'PATIENT') return res.status(401).json({success:false,message:'Please sign in again to manage appointments.'});
   req.patientId = session.patientId;
   next();
+}
+
+// Allows the request only for the listed roles, e.g. requireRole('ADMIN').
+// 401 = not signed in (or session expired); 403 = signed in, wrong role.
+function requireRole(...roles) {
+  return (req, res, next) => {
+    const session = readSession(req);
+    if (!session) return res.status(401).json({ success: false, message: 'Please sign in again.' });
+    if (!roles.includes(session.role)) return res.status(403).json({ success: false, message: 'You do not have access to this.' });
+    req.session = session;
+    next();
+  };
 }
 
 const cors = require('cors');
@@ -60,21 +88,48 @@ app.get('/api/patients/:id', async (req, res) => {
 });
 
 // POST /api/patients - Create a new patient
-app.post('/api/patients', async (req, res) => {
-  try {
-    // 1. Destructure patient fields from request body
-    // (Adjust these field names to match your PATIENT table column names exactly)
-    const { nic,guardian_nic = null,first_name,last_name,dob,gender,address = null ,phone=null,} = req.body;
+// Admin and front desk only. Sri Lankan NIC formats: old (9 digits + V/X)
+// or new (12 digits).
+const NIC_PATTERN = /^(\d{9}[VvXx]|\d{12})$/;
+const PHONE_PATTERN = /^0\d{9}$/;
+const GENDERS = ['Male', 'Female', 'Other'];
 
-    // 2. Validate basic input
+app.post('/api/patients', requireRole('ADMIN', 'FRONTDESK'), async (req, res) => {
+  try {
+    const clean = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);
+    const nic = clean(req.body.nic)?.toUpperCase() ?? null;
+    const guardian_nic = clean(req.body.guardian_nic)?.toUpperCase() ?? null;
+    const first_name = clean(req.body.first_name);
+    const last_name = clean(req.body.last_name);
+    const dob = clean(req.body.dob);
+    const gender = clean(req.body.gender);
+    const address = clean(req.body.address);
+    const phone = clean(req.body.phone);
+
     if (!nic || !first_name || !last_name || !dob || !gender) {
       return res.status(400).json({
         success: false,
-        message: 'All required fields : nic, first_name, last_name, dob, gender are required.'
+        message: 'NIC, first name, last name, date of birth and gender are required.'
       });
     }
+    if (!NIC_PATTERN.test(nic)) {
+      return res.status(400).json({ success: false, message: 'NIC must be 9 digits followed by V or X, or 12 digits.' });
+    }
+    if (guardian_nic && !NIC_PATTERN.test(guardian_nic)) {
+      return res.status(400).json({ success: false, message: 'Guardian NIC must be 9 digits followed by V or X, or 12 digits.' });
+    }
+    if (!GENDERS.includes(gender)) {
+      return res.status(400).json({ success: false, message: 'Gender must be Male, Female or Other.' });
+    }
+    const birthDate = /^\d{4}-\d{2}-\d{2}$/.test(dob) ? new Date(`${dob}T00:00:00`) : null;
+    if (!birthDate || Number.isNaN(birthDate.getTime()) || birthDate > new Date()) {
+      return res.status(400).json({ success: false, message: 'Date of birth must be a real date that is not in the future.' });
+    }
+    if (phone && !PHONE_PATTERN.test(phone)) {
+      return res.status(400).json({ success: false, message: 'Phone must be 10 digits starting with 0, e.g. 0771234567.' });
+    }
 
-    // 3. Insert record using a parameterized SQL query
+    // Insert record using a parameterized SQL query
     const sql = `
       INSERT INTO PATIENT (nic, guardian_nic, first_name, last_name, dob, gender, address, phone)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?);
@@ -91,7 +146,7 @@ app.post('/api/patients', async (req, res) => {
       phone
     ]);
 
-    // 4. Respond with the auto-generated ID
+    // Respond with the auto-generated ID
     res.status(201).json({
       success: true,
       message: 'Patient registered successfully!',
@@ -99,11 +154,12 @@ app.post('/api/patients', async (req, res) => {
     });
 
   } catch (error) {
+    // uq_patient_nic in 02_constraints.sql: one patient per NIC
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ success: false, message: 'A patient with this NIC is already registered.' });
+    }
     console.error('Error creating patient:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message 
-    });
+    res.status(500).json({ success: false, message: 'Could not add the patient. Please try again.' });
   }
 });
 // ----------------------------------------------------
@@ -428,7 +484,7 @@ app.post('/api/appointments', async (req, res) => {
   }
 });
 
-app.get('/api/reports/summary', async (req, res) => {
+app.get('/api/reports/summary', requireRole('ADMIN', 'FRONTDESK'), async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM v_dashboard_summary');
     res.json(rows[0]);                    // single object, not an array
@@ -438,7 +494,7 @@ app.get('/api/reports/summary', async (req, res) => {
   }
 });
 
-app.get('/api/reports/branch-appointments', async (req, res) => {
+app.get('/api/reports/branch-appointments', requireRole('ADMIN'), async (req, res) => {
   try {
     const { branchId, month } = req.query;
 
@@ -480,7 +536,7 @@ app.get('/api/reports/branch-appointments', async (req, res) => {
   }
 });
 
-app.get('/api/reports/branch-summary', async (req, res) => {
+app.get('/api/reports/branch-summary', requireRole('ADMIN', 'FRONTDESK'), async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT REPLACE(branch, 'MedSync ', '') AS branch,
@@ -507,7 +563,7 @@ app.get('/api/branches', async (req, res) => {
   }
 });
 
-app.get('/api/reports/branch-appointments/months', async (req, res) => {
+app.get('/api/reports/branch-appointments/months', requireRole('ADMIN'), async (req, res) => {
   try {
     const { branchId } = req.query;
     if (!branchId) {
@@ -602,6 +658,7 @@ app.post('/api/auth/login', async (req, res) => {
         return res.json({
           success: true,
           role: 'ADMIN',
+          token: createSession({ role: 'ADMIN' }),
           user: {
             name: 'System Administrator',
             email: normalizedEmail,
@@ -624,9 +681,13 @@ app.post('/api/auth/login', async (req, res) => {
     if (staffRows.length > 0) {
       if (password === 'admin123' || password === 'staff123') {
         const staff = staffRows[0];
+        // Receptionists run the front desk: they may add patients and view the
+        // Overview, nothing else. Every other staff role keeps admin access.
+        const role = staff.role === 'Receptionist' ? 'FRONTDESK' : 'ADMIN';
         return res.json({
           success: true,
-          role: 'ADMIN',
+          role,
+          token: createSession({ role, staffId: staff.staff_id }),
           user: {
             staff_id: staff.staff_id,
             name: `${staff.first_name} ${staff.last_name}`,
@@ -662,8 +723,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     // Return patient details with role 'PATIENT'
     const { password_hash, ...patientProfile } = patient;
-    const token = randomBytes(32).toString('hex');
-    patientSessions.set(token, {patientId: patient.patient_id, expires: Date.now() + 8 * 60 * 60 * 1000});
+    const token = createSession({ role: 'PATIENT', patientId: patient.patient_id });
     res.json({
       success: true,
       role: 'PATIENT',
@@ -981,7 +1041,7 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
 // per doctor, so the filters narrow the days first (WHERE) and the remaining
 // days are then added up per doctor (GROUP BY + SUM). No LIMIT: there is one
 // row per doctor, so the result is always small.
-app.get('/api/reports/doctor-revenue', async (req, res) => {
+app.get('/api/reports/doctor-revenue', requireRole('ADMIN'), async (req, res) => {
   try {
     const { doctor, from, to } = req.query;
     const isDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -1028,7 +1088,7 @@ app.get('/api/reports/doctor-revenue', async (req, res) => {
 // Paginated: ?page=N returns 100 rows plus the totals the frontend needs to
 // draw page buttons. invoice_id breaks ties so equal balances never appear
 // on two pages (or on none).
-app.get('/api/reports/outstanding-balances', async (req, res) => {
+app.get('/api/reports/outstanding-balances', requireRole('ADMIN'), async (req, res) => {
   try {
     const pageSize = 100;
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -1053,7 +1113,7 @@ app.get('/api/reports/outstanding-balances', async (req, res) => {
 });
 
 // GET /api/reports/treatment-categories
-app.get('/api/reports/treatment-categories', async (req, res) => {
+app.get('/api/reports/treatment-categories', requireRole('ADMIN'), async (req, res) => {
   try {
     const { from, to } = req.query;
     const isValidDate = (value) => {
@@ -1121,7 +1181,7 @@ app.get('/api/reports/treatment-categories', async (req, res) => {
 // invoice_id is the sort key because each invoice currently has at most one
 // claim; if resubmitted claims are ever allowed, add claim_id to the view
 // and sort on that instead, or rows could repeat across pages.
-app.get('/api/reports/insurance-coverage', async (req, res) => {
+app.get('/api/reports/insurance-coverage', requireRole('ADMIN'), async (req, res) => {
   try {
     const pageSize = 100;
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);

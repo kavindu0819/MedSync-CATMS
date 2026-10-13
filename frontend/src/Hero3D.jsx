@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import heroImage from "./assets/hero.jpg";
 import "./Hero3D.css";
@@ -37,27 +37,7 @@ function buildBrain(count = 820) {
 
 export default function Hero3D() {
   const mountRef = useRef(null);
-  const hudRef = useRef(null);
   const spotlightRef = useRef(null);
-  const [vitals, setVitals] = useState({
-    bpm: 74,
-    spo2: 99,
-    load: 68,
-    synapses: 94.2,
-  });
-
-  // Dynamic clinical vitals simulation
-  useEffect(() => {
-    const id = setInterval(() => {
-      setVitals({
-        bpm: 72 + Math.round(Math.random() * 6),
-        spo2: 98 + Math.round(Math.random() * 2),
-        load: 62 + Math.round(Math.random() * 16),
-        synapses: Number((93 + Math.random() * 5.5).toFixed(1)),
-      });
-    }, 1800);
-    return () => clearInterval(id);
-  }, []);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -355,11 +335,6 @@ export default function Hero3D() {
       root.rotation.y = cur.x * 0.12;
       root.rotation.x = cur.y * 0.07;
 
-      // 3D tilt on HUD card
-      if (hudRef.current) {
-        hudRef.current.style.transform = `perspective(900px) rotateY(${cur.x * -7}deg) rotateX(${cur.y * 6}deg)`;
-      }
-
       renderer.render(scene, camera);
       raf = requestAnimationFrame(frame);
     }
@@ -392,44 +367,6 @@ export default function Hero3D() {
       <div className="hero3d__reticle">
         <div className="reticle__ring" />
         <div className="reticle__scan-beam" />
-        <div className="reticle__tag">
-          <span className="reticle__pulse" />
-          <span>NEURAL SCAN · CEREBRAL ACTIVE</span>
-        </div>
-      </div>
-
-      {/* Futuristic Clinical HUD Card */}
-      <div className="hero3d__hud" ref={hudRef}>
-        <div className="hud__header">
-          <span className="hud__dot" />
-          <span className="hud__status">CATMS LIVE TELEMETRY</span>
-          <span className="hud__badge">99.8% SYNC</span>
-        </div>
-
-        {/* Real-time ECG Pulse Line */}
-        <div className="hud__wave-wrap">
-          <svg className="hud__ecg" viewBox="0 0 220 44" preserveAspectRatio="none">
-            <polyline
-              points="0,22 28,22 36,22 42,6 48,38 54,22 88,22 96,22 102,7 108,36 114,22 148,22 156,22 162,5 168,39 174,22 220,22"
-            />
-          </svg>
-          <div className="hud__sweep-line" />
-        </div>
-
-        <div className="hud__stats">
-          <div className="hud__stat">
-            <small>Heart Rate</small>
-            <b>{vitals.bpm} <span className="stat__unit">bpm</span></b>
-          </div>
-          <div className="hud__stat">
-            <small>SpO₂ Oxygen</small>
-            <b>{vitals.spo2} <span className="stat__unit">%</span></b>
-          </div>
-          <div className="hud__stat">
-            <small>Cognitive Load</small>
-            <b>{vitals.load} <span className="stat__unit">%</span></b>
-          </div>
-        </div>
       </div>
     </div>
   );
