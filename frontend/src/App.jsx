@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Bar,
   BarChart,
@@ -10,7 +11,8 @@ import {
   YAxis,
 } from "recharts";
 import { api, checkBackend, fetchOverviewSummary, fetchReport,
-         fetchBranches, fetchBranchMonths, fetchBranchAppointments } from "./api";
+         fetchBranches, fetchBranchMonths, fetchBranchAppointments,
+         fetchOutstandingBalances, fetchInsuranceCoverage } from "./api";
 
 import "./App.css";
 
@@ -69,7 +71,7 @@ function titleCase(value) {
 function formatCell(value, key) {
   if (value === null || value === undefined || value === "") return "-";
 
-  const moneyKey = /revenue|amount|total|paid|balance|outstanding|covered|pocket/i.test(key);
+  const moneyKey = /revenue|amount|total|paid|balance|outstanding|covered|pocket|value/i.test(key);
   if (typeof value === "number" && moneyKey) {
     return `LKR ${value.toLocaleString("en-LK", { minimumFractionDigits: 2 })}`;
   }
@@ -407,7 +409,177 @@ function BranchAppointmentsReport() {
   );
 }
 
-function App() {
+// Which page numbers to show: always the first and last, plus the pages
+// either side of the current one, with "…" where pages are skipped.
+//   page 1 of 23  ->  1 2 … 23
+//   page 6 of 23  ->  1 … 5 6 7 … 23
+function pageNumbers(current, total) {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+
+  const pages = [1];
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+
+  if (start > 2) pages.push("…");
+  for (let p = start; p <= end; p++) pages.push(p);
+  if (end < total - 1) pages.push("…");
+  pages.push(total);
+
+  return pages;
+}
+
+function Pagination({ page, totalPages, onChange }) {
+  if (totalPages <= 1) return null;
+
+  return (
+    <nav className="pagination" aria-label="Pages">
+      <button
+        type="button"
+        className="page-button"
+        disabled={page === 1}
+        onClick={() => onChange(page - 1)}
+      >
+        ‹ Prev
+      </button>
+
+      {pageNumbers(page, totalPages).map((p, i) =>
+        p === "…" ? (
+          <span key={`gap-${i}`} className="page-gap">…</span>
+        ) : (
+          <button
+            key={p}
+            type="button"
+            className={p === page ? "page-button active" : "page-button"}
+            aria-current={p === page ? "page" : undefined}
+            onClick={() => onChange(p)}
+          >
+            {p}
+          </button>
+        )
+      )}
+
+      <button
+        type="button"
+        className="page-button"
+        disabled={page === totalPages}
+        onClick={() => onChange(page + 1)}
+      >
+        Next ›
+      </button>
+    </nav>
+  );
+}
+
+function OutstandingBalancesReport() {
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState({ rows: [], total: 0, totalPages: 0, pageSize: 100 });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+
+    fetchOutstandingBalances(page)
+      .then((res) => { if (!cancelled) setData(res); })
+      .catch(() => { if (!cancelled) setError("Could not load outstanding balances."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [page]);
+
+  function goToPage(p) {
+    setPage(p);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  const first = data.total === 0 ? 0 : (page - 1) * data.pageSize + 1;
+  const last = Math.min(page * data.pageSize, data.total);
+
+  return (
+    <section className="panel report-panel">
+      <div className="panel-heading">
+        <div><p className="eyebrow">REPORT RESULTS</p><h3>Outstanding balances</h3></div>
+      </div>
+
+      {error && <div className="notice">{error}</div>}
+
+      {loading ? (
+        <div className="empty-state">Loading...</div>
+      ) : (
+        <>
+          <p className="panel-note">
+            Showing {first}–{last} of {data.total.toLocaleString()} unpaid invoices, largest first
+          </p>
+          <ReportTable rows={data.rows} />
+          <Pagination page={page} totalPages={data.totalPages} onChange={goToPage} />
+        </>
+      )}
+    </section>
+  );
+}
+
+function InsuranceCoverageReport() {
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState({ rows: [], total: 0, totalPages: 0, pageSize: 100 });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+
+    fetchInsuranceCoverage(page)
+      .then((res) => { if (!cancelled) setData(res); })
+      .catch(() => { if (!cancelled) setError("Could not load insurance coverage."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [page]);
+
+  function goToPage(p) {
+    setPage(p);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  const first = data.total === 0 ? 0 : (page - 1) * data.pageSize + 1;
+  const last = Math.min(page * data.pageSize, data.total);
+
+  return (
+    <section className="panel report-panel">
+      <div className="panel-heading">
+        <div><p className="eyebrow">REPORT RESULTS</p><h3>Insurance coverage</h3></div>
+      </div>
+
+      {error && <div className="notice">{error}</div>}
+
+      {loading ? (
+        <div className="empty-state">Loading...</div>
+      ) : (
+        <>
+          <p className="panel-note">
+            Showing {first}–{last} of {data.total.toLocaleString()} insurance claims, newest first
+          </p>
+          <ReportTable rows={data.rows} />
+          <Pagination page={page} totalPages={data.totalPages} onChange={goToPage} />
+        </>
+      )}
+    </section>
+  );
+}
+
+function App({ user, onLogout }) {
+  const navigate = useNavigate();
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem("medsync-admin-theme") === "light" ? "light" : "dark"; }
+    catch { return "dark"; }
+  });
+  function changeTheme(nextTheme) {
+    setTheme(nextTheme);
+    try { localStorage.setItem("medsync-admin-theme", nextTheme); } catch { /* Keep session choice when storage is unavailable. */ }
+  }
   const [activeReport, setActiveReport] = useState("Overview");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -426,6 +598,8 @@ function App() {
   const loadReport = useCallback(async () => {
     if (activeReport === "Overview") return;
     if (activeReport === "Branch appointments") return;
+    if (activeReport === "Outstanding balances") return;
+    if (activeReport === "Insurance coverage") return;
 
     setLoading(true);
     setError("");
@@ -436,10 +610,16 @@ function App() {
       const apiRows = normaliseRows(payload);
       setRows(apiRows);
     } catch (requestError) {
-      // This lets the UI remain usable before the backend teammate finishes the report APIs.
-      setRows(demoRows[activeReport] || []);
-      setUsingDemoData(true);
-      setError(requestError.response?.data?.message || "Report API is not available yet. Showing demo data.");
+      if (activeReport === "Treatment categories") {
+        setRows([]);
+        setUsingDemoData(false);
+        setError(requestError.response?.data?.message || requestError.response?.data?.error || "Could not load treatment category data from the database.");
+      } else {
+        // This lets the UI remain usable before the backend teammate finishes the report APIs.
+        setRows(demoRows[activeReport] || []);
+        setUsingDemoData(true);
+        setError(requestError.response?.data?.message || "Report API is not available yet. Showing demo data.");
+      }
     } finally {
       setLoading(false);
     }
@@ -460,7 +640,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-theme={theme}>
       <aside className="sidebar">
         <div className="brand"><div className="brand-icon">M</div><div><h1>MedSync</h1><p>CATMS Dashboard</p></div></div>
         <nav className="navigation">
@@ -472,20 +652,32 @@ function App() {
       <main className="main-content">
         <header className="topbar">
           <div><p className="eyebrow">MEDSYNC CATMS</p><h2>{activeReport}</h2></div>
-          <div className="user-chip"><span className="user-avatar">S</span><span>Sivakumaran</span></div>
+          <div className="user-chip">
+            <div className="theme-switch" role="group" aria-label="Dashboard appearance">
+              <button type="button" aria-pressed={theme === "light"} onClick={() => changeTheme("light")}>Light</button>
+              <button type="button" aria-pressed={theme === "dark"} onClick={() => changeTheme("dark")}>Dark</button>
+            </div>
+            <span className="user-avatar">{(user?.name || "Admin").charAt(0).toUpperCase()}</span>
+            <span>{user?.name || "Administrator"}</span>
+            <button className="logout-button" type="button" onClick={() => { onLogout(); navigate("/", { replace: true }); }}>Sign out</button>
+          </div>
         </header>
 
         {activeReport === "Overview" ? (
           <Overview backendStatus={backendStatus} onSelectReport={selectReport} />
         ) : activeReport === "Branch appointments" ? (
           <BranchAppointmentsReport />
+        ) : activeReport === "Outstanding balances" ? (
+          <OutstandingBalancesReport />
+        ) : activeReport === "Insurance coverage" ? (
+          <InsuranceCoverageReport />
         ) : (
           <section className="panel report-panel">
             <div className="panel-heading"><div><p className="eyebrow">REPORT RESULTS</p><h3>{activeReport}</h3></div>{usingDemoData && <span className="demo-badge">Demo data</span>}</div>
             <FilterBar reportName={activeReport} values={draftFilters} onChange={updateFilter} onApply={() => setAppliedFilters({ ...draftFilters })} />
             {error && <div className="notice">{error}</div>}
             {loading ? <div className="empty-state">Loading report...</div> : <><ReportChart reportName={activeReport} rows={rows} /><ReportTable rows={rows} /></>}
-            <p className="panel-note">The backend teammate must provide the report endpoint before this page can show database data.</p>
+            <p className="panel-note"></p>
           </section>
         )}
       </main>

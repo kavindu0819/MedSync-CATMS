@@ -64,8 +64,49 @@ export async function fetchBranchAppointments(branchId, month) {
   return response.data;
 }
 
+export async function fetchOutstandingBalances(page) {
+  const response = await api.get("/reports/outstanding-balances", { params: { page } });
+  return response.data;
+}
+
+export async function fetchInsuranceCoverage(page) {
+  const response = await api.get("/reports/insurance-coverage", { params: { page } });
+  return response.data;
+}
+
 export async function checkBackend() {
   // The current backend already has this route in server.js.
   const response = await api.get("/doctors");
+  return response.data;
+}
+
+export async function registerPatient(nic, email, password) {
+  const response = await api.post("/patient/register", { nic, email, password });
+  return response.data;
+}
+
+export async function fetchDoctorsByBranch(branchId) {
+  const response = await api.get("/doctors", { params: { branchId } });
+  return Array.isArray(response.data?.data) ? response.data.data : [];
+}
+
+export async function fetchAppointmentAvailability(branchId, doctorId, date) {
+  const response = await api.get("/appointments/availability", {
+    params: { branchId, doctorId, date },
+  });
+  return Array.isArray(response.data?.data) ? response.data.data : [];
+}
+
+export async function bookAppointment({ patientId, branchId, doctorId, date, start }) {
+  const response = await api.post("/appointments", {
+    patient_id: Number(patientId),
+    branch_id: Number(branchId),
+    doctor_id: Number(doctorId),
+    appointment_date: date,
+    scheduled_start: start,
+    room_id: null,
+    status: "Scheduled",
+    is_walkin: false,
+  });
   return response.data;
 }
