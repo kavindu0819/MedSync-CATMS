@@ -14,8 +14,10 @@ import { api, checkBackend, fetchOverviewSummary, fetchReport,
          fetchBranches, fetchBranchMonths, fetchBranchAppointments,
          fetchOutstandingBalances, fetchInsuranceCoverage, createPatient } from "./api";
 
+import DashboardSidebar from "./DashboardSidebar";
+import { useDashboardTheme } from "./useDashboardTheme";
 import {
-  TAB_ICONS, LogoutIcon, SunIcon, MoonIcon, UsersIcon, CalendarIcon, BuildingIcon,
+  TAB_ICONS, UsersIcon, CalendarIcon, BuildingIcon,
   StethoscopeIcon, ReceiptIcon, CoinsIcon, ClockIcon,
 } from "./icons";
 
@@ -742,14 +744,7 @@ const TABS_BY_ROLE = {
 
 function App({ user, role, onLogout }) {
   const navigate = useNavigate();
-  const [theme, setTheme] = useState(() => {
-    try { return localStorage.getItem("medsync-admin-theme") === "dark" ? "dark" : "light"; }
-    catch { return "light"; }
-  });
-  function changeTheme(nextTheme) {
-    setTheme(nextTheme);
-    try { localStorage.setItem("medsync-admin-theme", nextTheme); } catch { /* Keep session choice when storage is unavailable. */ }
-  }
+  const [theme, changeTheme] = useDashboardTheme();
   const tabs = TABS_BY_ROLE[role] || TABS_BY_ROLE.ADMIN;
   const isFrontDesk = role === "FRONTDESK";
   const [activeReport, setActiveReport] = useState("Overview");
@@ -814,38 +809,18 @@ function App({ user, role, onLogout }) {
 
   return (
     <div className="app-shell" data-theme={theme}>
-      <aside className="sidebar">
-        <div className="brand"><div className="brand-icon">M</div><div><h1>MedSync</h1><p>CATMS Dashboard</p></div></div>
-        <nav className="navigation">
-          {tabs.map((report) => {
-            const TabIcon = TAB_ICONS[report];
-            return (
-              <button key={report} className={activeReport === report ? "nav-item active" : "nav-item"} onClick={() => selectReport(report)}>
-                {TabIcon && <TabIcon />}
-                <span>{report}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="sidebar-account">
-          <div className="theme-switch" role="group" aria-label="Dashboard appearance">
-            <button type="button" aria-pressed={theme === "light"} onClick={() => changeTheme("light")}><SunIcon size={15} />Light</button>
-            <button type="button" aria-pressed={theme === "dark"} onClick={() => changeTheme("dark")}><MoonIcon size={15} />Dark</button>
-          </div>
-          <div className="user-chip">
-            <span className="user-avatar">{(user?.name || "Admin").charAt(0).toUpperCase()}</span>
-            <div className="user-chip__text">
-              <strong>{user?.name || "Administrator"}</strong>
-              <span>{isFrontDesk ? "Front desk" : "Administrator"}</span>
-            </div>
-          </div>
-          <button className="nav-item logout-button" type="button" onClick={() => { onLogout(); navigate("/", { replace: true }); }}>
-            <LogoutIcon />
-            <span>Sign out</span>
-          </button>
-        </div>
-      </aside>
+      <DashboardSidebar
+        subtitle="CATMS Dashboard"
+        navLabel="Dashboard navigation"
+        items={tabs.map((tab) => ({ id: tab, label: tab, Icon: TAB_ICONS[tab] }))}
+        active={activeReport}
+        onSelect={selectReport}
+        theme={theme}
+        onThemeChange={changeTheme}
+        userName={user?.name || "Administrator"}
+        userRole={isFrontDesk ? "Front desk" : "Administrator"}
+        onSignOut={() => { onLogout(); navigate("/", { replace: true }); }}
+      />
 
       <main className="main-content">
         <header className="topbar">

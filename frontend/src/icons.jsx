@@ -133,6 +133,21 @@ export const ClockIcon = (p) => (
   </Icon>
 );
 
+export const RecordsIcon = (p) => (
+  <Icon {...p}>
+    <path d="M14 3.5H7A2.5 2.5 0 0 0 4.5 6v12A2.5 2.5 0 0 0 7 20.5h10a2.5 2.5 0 0 0 2.5-2.5V9Z" />
+    <path d="M14 3.5V9h5.5" />
+    <path d="M12 12v5M9.5 14.5h5" />
+  </Icon>
+);
+
+export const PillIcon = (p) => (
+  <Icon {...p}>
+    <rect x="2.8" y="8.2" width="18.4" height="7.6" rx="3.8" transform="rotate(-45 12 12)" />
+    <path d="m8.8 8.8 6.4 6.4" />
+  </Icon>
+);
+
 // One icon per sidebar tab.
 export const TAB_ICONS = {
   Overview: DashboardIcon,
