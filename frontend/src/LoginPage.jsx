@@ -49,9 +49,10 @@ export default function LoginPage() {
 
   // Predicted destination based on typed email
   const normalizedTypedEmail = email.trim().toLowerCase();
+  const isDoctorEmail = normalizedTypedEmail.includes("doctor");
   const isAdminEmail =
     normalizedTypedEmail.includes("admin") ||
-    (normalizedTypedEmail.endsWith("@medsync.lk") && !normalizedTypedEmail.includes("patient") && !normalizedTypedEmail.includes("doctor"));
+    (normalizedTypedEmail.endsWith("@medsync.lk") && !normalizedTypedEmail.includes("patient") && !isDoctorEmail);
 
   async function handleLoginSubmit(event) {
     event.preventDefault();
@@ -211,10 +212,10 @@ export default function LoginPage() {
 
               {/* Dynamic route destination badge */}
               {email.trim() && (
-                <div className={`login-page__route-hint ${isAdminEmail ? "hint--admin" : "hint--patient"}`}>
-                  <span className="hint-icon">{isAdminEmail ? "🛡️" : "🩺"}</span>
+                <div className={`login-page__route-hint ${isDoctorEmail ? "hint--doctor" : isAdminEmail ? "hint--admin" : "hint--patient"}`}>
+                  <span className="hint-icon">{isDoctorEmail ? "🩺" : isAdminEmail ? "🛡️" : "👤"}</span>
                   <span>
-                    Destined for: <strong>{isAdminEmail ? "Main Admin Dashboard (/admin)" : "Patient Dashboard (/patient)"}</strong>
+                    Destined for: <strong>{isDoctorEmail ? "Doctor Dashboard (/doctor)" : isAdminEmail ? "Main Admin Dashboard (/admin)" : "Patient Dashboard (/patient)"}</strong>
                   </span>
                 </div>
               )}
