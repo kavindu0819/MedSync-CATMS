@@ -261,6 +261,54 @@ app.get('/api/appointments', async (req, res) => {
   }
 });
 
+// GET /api/doctor/appointments?scope=today|upcoming|past
+// Only the signed-in doctor's own appointments: the doctor comes from the
+// session (staff_id = doctor_id), never from the URL, so one doctor cannot
+// read another doctor's list. upcoming/past are capped at 100 rows.
+const DOCTOR_SCOPES = {
+  today:    { where: 'a.appointment_date = ?', order: 'a.scheduled_start ASC' },
+  upcoming: { where: 'a.appointment_date >= ?', order: 'a.appointment_date ASC, a.scheduled_start ASC' },
+  past:     { where: 'a.appointment_date < ?', order: 'a.appointment_date DESC, a.scheduled_start DESC' },
+};
+
+app.get('/api/doctor/appointments', requireRole('DOCTOR'), async (req, res) => {
+  try {
+    const scope = req.query.scope || 'upcoming';
+    const rule = DOCTOR_SCOPES[scope];
+    if (!rule) {
+      return res.status(400).json({ success: false, message: 'scope must be today, upcoming or past' });
+    }
+
+    // Today's date on this machine (Sri Lanka time), not the database's UTC clock.
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    const [rows] = await pool.query(
+      `SELECT a.appointment_id,
+              a.appointment_date AS date,
+              TIME_FORMAT(a.scheduled_start, '%H:%i') AS start,
+              TIME_FORMAT(a.scheduled_end, '%H:%i')   AS end,
+              a.status,
+              a.is_walkin,
+              p.patient_id,
+              CONCAT(p.first_name, ' ', p.last_name) AS patient,
+              b.name AS branch
+       FROM APPOINTMENT a
+       JOIN PATIENT p ON p.patient_id = a.patient_id
+       JOIN BRANCH b  ON b.branch_id  = a.branch_id
+       WHERE a.doctor_id = ? AND ${rule.where}
+       ORDER BY ${rule.order}
+       LIMIT 100`,
+      [req.session.staffId, today]
+    );
+
+    res.json({ success: true, scope, today, appointments: rows });
+  } catch (error) {
+    console.error('Error fetching doctor appointments:', error.message);
+    res.status(500).json({ success: false, message: 'Could not load your appointments.' });
+  }
+});
+
 // Appointment availability for patient self-service booking.
 // Patients may choose ANY branch. Doctors are filtered to the selected branch.
 app.get('/api/appointments/availability', async (req, res) => {
