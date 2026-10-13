@@ -21,11 +21,8 @@ const HERO_COPY = {
 function Logo() {
   return (
     <div className="auth__logo">
-      <span className="auth__logo-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="16" height="16">
-          <path d="M10 3h4v7h7v4h-7v7h-4v-7H3v-4h7z" fill="currentColor" />
-        </svg>
-      </span>
+      {/* Green cross, the same mark as the dashboard sidebar */}
+      <span className="auth__logo-mark" aria-hidden="true" />
       MedSync
     </div>
   );

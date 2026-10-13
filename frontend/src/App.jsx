@@ -14,7 +14,22 @@ import { api, checkBackend, fetchOverviewSummary, fetchReport,
          fetchBranches, fetchBranchMonths, fetchBranchAppointments,
          fetchOutstandingBalances, fetchInsuranceCoverage, createPatient } from "./api";
 
+import DashboardSidebar from "./DashboardSidebar";
+import { useDashboardTheme } from "./useDashboardTheme";
+import {
+  TAB_ICONS, UsersIcon, CalendarIcon, BuildingIcon,
+  StethoscopeIcon, ReceiptIcon, CoinsIcon, ClockIcon,
+} from "./icons";
+
 import "./App.css";
+
+// Chart colours, matching the green dashboard theme in App.css.
+const CHART = {
+  completed: "#22b04f",
+  scheduled: "#3b8bf6",
+  cancelled: "#f2557a",
+  single: "#22b04f",
+};
 
 const reportNames = [
   "Overview",
@@ -155,11 +170,11 @@ function ReportChart({ reportName, rows }) {
       <h3>{reportName} chart</h3>
       <ResponsiveContainer width="100%" height={280}>
         <BarChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <CartesianGrid vertical={false} />
           <XAxis dataKey="name" />
           <YAxis />
           <Tooltip />
-          <Bar dataKey={valueKey} fill="#2563eb" radius={[6, 6, 0, 0]} />
+          <Bar dataKey={valueKey} fill={CHART.single} radius={[6, 6, 0, 0]} maxBarSize={48} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -195,6 +210,21 @@ function FilterBar({ reportName, values, onChange, onApply }) {
       <button className="primary-button" type="submit">Apply filters</button>
     </form>
   );
+}
+
+const lkr = (value) => `LKR ${Number(value ?? 0).toLocaleString()}`;
+
+// The Overview cards: what each shows and its colour (tone-* in App.css).
+function summaryCards(stats) {
+  return [
+    { label: "Total patients", value: stats?.total_patients?.toLocaleString() ?? "—", note: "Registered at any branch", tone: "pink", Icon: UsersIcon },
+    { label: "Appointments", value: stats?.total_appointments?.toLocaleString() ?? "—", note: "Across all branches", tone: "peach", Icon: CalendarIcon },
+    { label: "Branches", value: stats?.total_branches ?? "—", note: "Clinics in the system", tone: "mint", Icon: BuildingIcon },
+    { label: "Doctors", value: stats?.total_doctors ?? "—", note: "On the staff list", tone: "lavender", Icon: StethoscopeIcon },
+    { label: "Total billed", value: lkr(stats?.total_billed), note: "All invoices", tone: "blue", Icon: ReceiptIcon },
+    { label: "Total paid", value: lkr(stats?.total_collected), note: "Payments received", tone: "mint", Icon: CoinsIcon },
+    { label: "Outstanding", value: lkr(stats?.outstanding_balance), note: "Still to be collected", tone: "pink", Icon: ClockIcon },
+  ];
 }
 
 function Overview({ backendStatus, onSelectReport }) {
@@ -254,14 +284,16 @@ function Overview({ backendStatus, onSelectReport }) {
       {loading && !stats ? <div className="empty-state">Loading overview...</div> : null}
 
       <section className="summary-grid">
-        <div className="summary-card"><span>Total patients</span><strong>{stats?.total_patients ?? '—'}</strong><small>From the current seed data</small></div>
-        <div className="summary-card"><span>Appointments</span><strong>{stats?.total_appointments?.toLocaleString() ?? '—'}</strong><small>Across three branches</small></div>
-        <div className="summary-card"><span>Total branches</span><strong>{stats?.total_branches ?? '—'}</strong><small>From current branches in the system</small></div>
-        <div className="summary-card"><span>Total doctors</span><strong>{stats?.total_doctors ?? '—'}</strong><small>From the current seed data</small></div>
-        <div className="summary-card"><span>Total billed</span><strong>LKR {Number(stats?.total_billed ?? 0).toLocaleString()}</strong><small>Current billing summary</small></div>
-        <div className="summary-card"><span>Total paid</span><strong>LKR {Number(stats?.total_collected ?? 0).toLocaleString()}</strong><small>Current collection summary</small></div>
-        <div className="summary-card"><span>Outstanding</span><strong>LKR {Number(stats?.outstanding_balance ?? 0).toLocaleString()}</strong><small>Current outstanding balance</small></div>
-        {/* <div className="summary-card"><span>Reports</span><strong>5</strong><small>Available report pages</small></div> */}
+        {summaryCards(stats).map(({ label, value, note, tone, Icon }) => (
+          <div key={label} className={`summary-card tone-${tone}`}>
+            <span className="summary-icon"><Icon size={22} /></span>
+            <div className="summary-text">
+              <strong>{value}</strong>
+              <span>{label}</span>
+              <small>{note}</small>
+            </div>
+          </div>
+        ))}
       </section>
 
       <section className="overview-grid">
@@ -269,11 +301,11 @@ function Overview({ backendStatus, onSelectReport }) {
           <div className="panel-heading"><div><p className="eyebrow">APPOINTMENTS</p><h3>Branch activity</h3></div></div>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={chartRows}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <CartesianGrid vertical={false} />
               <XAxis dataKey="branch" /><YAxis /><Tooltip />
-              <Bar dataKey="completed" fill="#2563eb" radius={[6, 6, 0, 0]} />
-              <Bar dataKey="scheduled" fill="#93c5fd" radius={[6, 6, 0, 0]} />
-              <Bar dataKey="cancelled" fill="#f87171" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="completed" fill={CHART.completed} radius={[6, 6, 0, 0]} maxBarSize={34} />
+              <Bar dataKey="scheduled" fill={CHART.scheduled} radius={[6, 6, 0, 0]} maxBarSize={34} />
+              <Bar dataKey="cancelled" fill={CHART.cancelled} radius={[6, 6, 0, 0]} maxBarSize={34} />
               <Legend />
             </BarChart>
           </ResponsiveContainer>
@@ -398,14 +430,14 @@ function BranchAppointmentsReport() {
           <div className="chart-box">
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid vertical={false} />
                 <XAxis dataKey="day" />
                 <YAxis allowDecimals={false} />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="completed" stackId="a" fill="#2563eb" />
-                <Bar dataKey="scheduled" stackId="a" fill="#93c5fd" />
-                <Bar dataKey="cancelled" stackId="a" fill="#f87171" />
+                <Bar dataKey="completed" stackId="a" fill={CHART.completed} />
+                <Bar dataKey="scheduled" stackId="a" fill={CHART.scheduled} />
+                <Bar dataKey="cancelled" stackId="a" fill={CHART.cancelled} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -712,14 +744,7 @@ const TABS_BY_ROLE = {
 
 function App({ user, role, onLogout }) {
   const navigate = useNavigate();
-  const [theme, setTheme] = useState(() => {
-    try { return localStorage.getItem("medsync-admin-theme") === "light" ? "light" : "dark"; }
-    catch { return "dark"; }
-  });
-  function changeTheme(nextTheme) {
-    setTheme(nextTheme);
-    try { localStorage.setItem("medsync-admin-theme", nextTheme); } catch { /* Keep session choice when storage is unavailable. */ }
-  }
+  const [theme, changeTheme] = useDashboardTheme();
   const tabs = TABS_BY_ROLE[role] || TABS_BY_ROLE.ADMIN;
   const isFrontDesk = role === "FRONTDESK";
   const [activeReport, setActiveReport] = useState("Overview");
@@ -784,26 +809,22 @@ function App({ user, role, onLogout }) {
 
   return (
     <div className="app-shell" data-theme={theme}>
-      <aside className="sidebar">
-        <div className="brand"><div className="brand-icon">M</div><div><h1>MedSync</h1><p>CATMS Dashboard</p></div></div>
-        <nav className="navigation">
-          {tabs.map((report) => <button key={report} className={activeReport === report ? "nav-item active" : "nav-item"} onClick={() => selectReport(report)}>{report}</button>)}
-        </nav>
-        <div className="sidebar-footer"><p>Clinic management system</p><span>Frontend v1.0</span></div>
-      </aside>
+      <DashboardSidebar
+        subtitle="CATMS Dashboard"
+        navLabel="Dashboard navigation"
+        items={tabs.map((tab) => ({ id: tab, label: tab, Icon: TAB_ICONS[tab] }))}
+        active={activeReport}
+        onSelect={selectReport}
+        theme={theme}
+        onThemeChange={changeTheme}
+        userName={user?.name || "Administrator"}
+        userRole={isFrontDesk ? "Front desk" : "Administrator"}
+        onSignOut={() => { onLogout(); navigate("/", { replace: true }); }}
+      />
 
       <main className="main-content">
         <header className="topbar">
           <div><p className="eyebrow">MEDSYNC CATMS</p><h2>{activeReport}</h2></div>
-          <div className="user-chip">
-            <div className="theme-switch" role="group" aria-label="Dashboard appearance">
-              <button type="button" aria-pressed={theme === "light"} onClick={() => changeTheme("light")}>Light</button>
-              <button type="button" aria-pressed={theme === "dark"} onClick={() => changeTheme("dark")}>Dark</button>
-            </div>
-            <span className="user-avatar">{(user?.name || "Admin").charAt(0).toUpperCase()}</span>
-            <span>{user?.name || "Administrator"}{isFrontDesk ? " · Front desk" : ""}</span>
-            <button className="logout-button" type="button" onClick={() => { onLogout(); navigate("/", { replace: true }); }}>Sign out</button>
-          </div>
         </header>
 
         {activeReport === "Overview" ? (

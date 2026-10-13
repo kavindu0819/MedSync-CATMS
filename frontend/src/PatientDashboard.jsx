@@ -7,8 +7,15 @@ import {
   fetchBranches,
   fetchDoctorsByBranch,
 } from "./api";
-import "./PatientDashboard.css";
 import { getSession } from "./auth";
+import DashboardSidebar from "./DashboardSidebar";
+import { useDashboardTheme } from "./useDashboardTheme";
+import {
+  DashboardIcon, CalendarIcon, RecordsIcon, PillIcon, WalletIcon, ShieldIcon,
+  ClockIcon, HeartPulseIcon, ReceiptIcon, CoinsIcon,
+} from "./icons";
+import "./App.css";
+import "./PatientDashboard.css";
 
 const EMPTY_DATA = {
   patient: { name: "" },
@@ -27,12 +34,12 @@ const EMPTY_DATA = {
 };
 
 const NAV = [
-  { id: "overview", label: "Overview" },
-  { id: "appointments", label: "My appointments" },
-  { id: "records", label: "Medical records" },
-  { id: "prescriptions", label: "Prescriptions" },
-  { id: "billing", label: "Billing and payments" },
-  { id: "insurance", label: "Insurance coverage" },
+  { id: "overview", label: "Overview", Icon: DashboardIcon },
+  { id: "appointments", label: "My appointments", Icon: CalendarIcon },
+  { id: "records", label: "Medical records", Icon: RecordsIcon },
+  { id: "prescriptions", label: "Prescriptions", Icon: PillIcon },
+  { id: "billing", label: "Billing and payments", Icon: WalletIcon },
+  { id: "insurance", label: "Insurance coverage", Icon: ShieldIcon },
 ];
 
 const lkr = (n) => `LKR ${Number(n).toLocaleString("en-US")}`;
@@ -54,23 +61,27 @@ const todayLocal = () => {
 };
 const STATUS_CLASS = { Paid: "chip chip--paid", "Partly paid": "chip chip--partial", Unpaid: "chip chip--unpaid" };
 
-function StatCard({ label, value, note, highlight }) {
+// Same pastel stat card as the admin Overview (tone-* in App.css).
+function StatCard({ label, value, note, tone, Icon }) {
   return (
-    <div className={`card stat${highlight ? " stat--highlight" : ""}`}>
-      <div className="stat__label">{label}</div>
-      <div className="stat__value">{value}</div>
-      <div className={`stat__note${highlight ? " stat__note--warn" : ""}`}>{note}</div>
+    <div className={`summary-card tone-${tone}`}>
+      <span className="summary-icon"><Icon size={22} /></span>
+      <div className="summary-text">
+        <strong>{value}</strong>
+        <span>{label}</span>
+        <small>{note}</small>
+      </div>
     </div>
   );
 }
 
 function Panel({ id, eyebrow, title, action, children }) {
   return (
-    <section id={id} className="card panel">
-      <div className="panel__head">
+    <section id={id} className="panel">
+      <div className="panel-heading">
         <div>
-          <div className="eyebrow">{eyebrow}</div>
-          <h2 className="panel__title">{title}</h2>
+          <p className="eyebrow">{eyebrow}</p>
+          <h3>{title}</h3>
         </div>
         {action}
       </div>
@@ -237,8 +248,8 @@ function BookingDialog({ patientId, onClose, onBooked }) {
           {error && <div className="booking-form__error" role="alert">{error}</div>}
 
           <div className="booking-form__actions">
-            <button className="btn btn--secondary" type="button" onClick={onClose} disabled={busy}>Cancel</button>
-            <button className="btn" type="submit" disabled={busy || !slots.length}>{busy ? "Booking…" : "Confirm appointment"}</button>
+            <button className="secondary-button" type="button" onClick={onClose} disabled={busy}>Cancel</button>
+            <button className="primary-button" type="submit" disabled={busy || !slots.length}>{busy ? "Booking…" : "Confirm appointment"}</button>
           </div>
         </form>
       </section>
@@ -272,8 +283,8 @@ function AppointmentDetails({ appointment: a, onClose, onCancelled }) {
       <div><dt>Status</dt><dd>{a.status}</dd></div><div><dt>Visit type</dt><dd>{a.walkIn ? "Walk-in" : "Booked appointment"}</dd></div>
     </dl>
     {error && <p role="alert" className="booking-form__error">{error}</p>}
-    {confirming ? <div className="cancel-confirm"><p>Cancel this appointment? Your reserved time will become available to other patients.</p><div className="booking-form__actions"><button className="btn btn--secondary" disabled={busy} onClick={() => setConfirming(false)}>Keep appointment</button><button className="btn btn--danger" disabled={busy} onClick={cancel}>{busy ? "Cancelling…" : "Yes, cancel appointment"}</button></div></div>
-      : <div className="booking-form__actions"><button className="btn btn--secondary" onClick={onClose}>Close</button>{a.canCancel && <button className="btn btn--danger" onClick={() => setConfirming(true)}>Cancel appointment</button>}</div>}
+    {confirming ? <div className="cancel-confirm"><p>Cancel this appointment? Your reserved time will become available to other patients.</p><div className="booking-form__actions"><button className="secondary-button" disabled={busy} onClick={() => setConfirming(false)}>Keep appointment</button><button className="danger-button" disabled={busy} onClick={cancel}>{busy ? "Cancelling…" : "Yes, cancel appointment"}</button></div></div>
+      : <div className="booking-form__actions"><button className="secondary-button" onClick={onClose}>Close</button>{a.canCancel && <button className="danger-button" onClick={() => setConfirming(true)}>Cancel appointment</button>}</div>}
     {!a.canCancel && <p className="muted">Only future, scheduled appointments can be cancelled.</p>}
   </dialog>;
 }
@@ -282,8 +293,7 @@ export default function PatientDashboard({ patientId, patientName, onLogout }) {
   const navigate = useNavigate();
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [appointmentFilter, setAppointmentFilter] = useState("upcoming");
-  const [theme, setTheme] = useState(() => { try { return localStorage.getItem("medsync-admin-theme") === "light" ? "light" : "dark"; } catch { return "dark"; } });
-  function changeTheme(value) { setTheme(value); try { localStorage.setItem("medsync-admin-theme", value); } catch { /* Session-only preference. */ } }
+  const [theme, changeTheme] = useDashboardTheme();
   const [active, setActive] = useState("overview");
   const [refreshKey, setRefreshKey] = useState(0);
   const [bookingOpen, setBookingOpen] = useState(false);
@@ -385,18 +395,15 @@ export default function PatientDashboard({ patientId, patientName, onLogout }) {
 
   const renderOverview = () => (
     <div className="pd__page">
-      <div className="grid">
-        <StatCard label="Next appointment" value={data.stats.nextAppointment.date} note={data.stats.nextAppointment.detail} />
-        <StatCard label="Upcoming appointments" value={data.stats.upcomingCount} note="Scheduled visits ahead" />
-        <StatCard label="Active prescriptions" value={data.stats.activePrescriptions ?? "N/A"} note="Medication records summary" />
-        <StatCard label="Total visits" value={data.stats.totalVisits} note="Across all branches" />
-      </div>
-
-      <div className="grid grid--3">
-        <StatCard label="Total billed" value={lkr(data.billing.billed)} note="Your billing summary" />
-        <StatCard label="Total paid" value={lkr(data.billing.paid)} note="Payments received" />
-        <StatCard label="Outstanding balance" value={lkr(data.billing.outstanding)} note="Current amount due" highlight />
-      </div>
+      <section className="summary-grid">
+        <StatCard label="Next appointment" value={data.stats.nextAppointment.date} note={data.stats.nextAppointment.detail} tone="pink" Icon={ClockIcon} />
+        <StatCard label="Upcoming appointments" value={data.stats.upcomingCount} note="Scheduled visits ahead" tone="peach" Icon={CalendarIcon} />
+        <StatCard label="Active prescriptions" value={data.stats.activePrescriptions ?? "N/A"} note="Medication records summary" tone="mint" Icon={PillIcon} />
+        <StatCard label="Total visits" value={data.stats.totalVisits} note="Across all branches" tone="lavender" Icon={HeartPulseIcon} />
+        <StatCard label="Total billed" value={lkr(data.billing.billed)} note="Your billing summary" tone="blue" Icon={ReceiptIcon} />
+        <StatCard label="Total paid" value={lkr(data.billing.paid)} note="Payments received" tone="mint" Icon={CoinsIcon} />
+        <StatCard label="Outstanding balance" value={lkr(data.billing.outstanding)} note="Current amount due" tone="pink" Icon={WalletIcon} />
+      </section>
 
       <div className="pd__overview-row">
         <Panel eyebrow="ACTIVITY" title="Visits per month">
@@ -429,7 +436,7 @@ export default function PatientDashboard({ patientId, patientName, onLogout }) {
       <Panel
         eyebrow="APPOINTMENTS"
         title="My appointments"
-        action={<button type="button" className="btn" onClick={openBooking}>Book appointment</button>}
+        action={<button type="button" className="primary-button" onClick={openBooking}>Book appointment</button>}
       >
         <p className="pd__section-intro">View appointments across every MedSync branch or create a new booking at the branch that suits you.</p>
         <div className="appointment-filters" role="group" aria-label="Filter appointments">{["upcoming", "history", "all"].map(value => <button type="button" key={value} aria-pressed={appointmentFilter === value} onClick={() => setAppointmentFilter(value)}>{value === "upcoming" ? "Upcoming" : value === "history" ? "Past & cancelled" : "All visits"}</button>)}</div>
@@ -446,7 +453,7 @@ export default function PatientDashboard({ patientId, patientName, onLogout }) {
                 <div className="appt__doctor">{a.doctor}</div>
                 <div className="appt__meta">{a.dept} · {a.branch} · {a.status}</div>
               </div>
-              <div className="appt__time">{a.time}</div><button type="button" className="btn btn--secondary" onClick={() => setSelectedAppointment(a)} aria-label={`View appointment ${a.id} with ${a.doctor}`}>View details</button>
+              <div className="appt__time">{a.time}</div><button type="button" className="secondary-button" onClick={() => setSelectedAppointment(a)} aria-label={`View appointment ${a.id} with ${a.doctor}`}>View details</button>
             </li>
           ))}
         </ul>
@@ -460,8 +467,8 @@ export default function PatientDashboard({ patientId, patientName, onLogout }) {
         {data.records.length === 0 ? (
           <p className="muted">No consultation records are available for this patient.</p>
         ) : (
-          <div className="table-wrap">
-            <table className="table">
+          <div className="table-scroll">
+            <table>
               <thead>
                 <tr><th>Date</th><th>Diagnosis</th><th>Doctor</th><th>Notes</th></tr>
               </thead>
@@ -486,7 +493,7 @@ export default function PatientDashboard({ patientId, patientName, onLogout }) {
     <div className="pd__page">
       <Panel eyebrow="PRESCRIPTIONS" title="Prescription records">
         <div className="pd__empty-feature">
-          <div className="pd__empty-icon">Rx</div>
+          <div className="pd__empty-icon"><PillIcon size={26} /></div>
           <div>
             <h3>Prescription details are not stored yet</h3>
             <p>Contact your clinic for current medication instructions. This page is kept separate so prescription data can be added later without crowding the dashboard.</p>
@@ -498,14 +505,14 @@ export default function PatientDashboard({ patientId, patientName, onLogout }) {
 
   const renderBilling = () => (
     <div className="pd__page">
-      <div className="grid grid--3">
-        <StatCard label="Total billed" value={lkr(data.billing.billed)} note="All recorded charges" />
-        <StatCard label="Total paid" value={lkr(data.billing.paid)} note="Payments received" />
-        <StatCard label="Outstanding balance" value={lkr(data.billing.outstanding)} note="Current amount due" highlight />
-      </div>
+      <section className="summary-grid summary-grid--three">
+        <StatCard label="Total billed" value={lkr(data.billing.billed)} note="All recorded charges" tone="blue" Icon={ReceiptIcon} />
+        <StatCard label="Total paid" value={lkr(data.billing.paid)} note="Payments received" tone="mint" Icon={CoinsIcon} />
+        <StatCard label="Outstanding balance" value={lkr(data.billing.outstanding)} note="Current amount due" tone="pink" Icon={WalletIcon} />
+      </section>
       <Panel eyebrow="BILLING" title="Bills and payments">
-        <div className="table-wrap">
-          <table className="table">
+        <div className="table-scroll">
+          <table>
             <thead><tr><th>Date</th><th>Treatment</th><th className="right">Amount</th><th>Status</th></tr></thead>
             <tbody>
               {data.bills.length === 0 && <tr><td colSpan="4" className="muted">No bills recorded.</td></tr>}
@@ -553,55 +560,31 @@ export default function PatientDashboard({ patientId, patientName, onLogout }) {
   };
 
   return (
-    <div className="pd" data-theme={theme}>
-      <aside className="pd__side">
-        <div className="brand">
-          <div className="brand__logo">M</div>
-          <div>
-            <div className="brand__name">MedSync</div>
-            <div className="brand__sub">Patient Portal</div>
-          </div>
-        </div>
+    <div className="app-shell pd" data-theme={theme}>
+      <DashboardSidebar
+        subtitle="Patient Portal"
+        navLabel="Patient navigation"
+        items={NAV}
+        active={active}
+        onSelect={selectPage}
+        theme={theme}
+        onThemeChange={changeTheme}
+        userName={patientName || data.patient.name || "Patient"}
+        userRole="Patient"
+        onSignOut={() => { onLogout(); navigate("/", { replace: true }); }}
+      />
 
-        <nav className="nav" aria-label="Patient navigation">
-          {NAV.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => selectPage(item.id)}
-              className={`nav__link${active === item.id ? " nav__link--active" : ""}`}
-              aria-current={active === item.id ? "page" : undefined}
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
-
-        <div className="pd__side-footer">
-          <p>Secure patient access</p>
-          <span>MedSync CATMS</span>
-        </div>
-      </aside>
-
-      <main className="pd__main">
+      <main className="main-content">
         <header className="topbar">
           <div>
-            <div className="eyebrow">MEDSYNC CATMS</div>
-            <h1 className="topbar__title">{activeItem.label}</h1>
-          </div>
-          <div className="pd__user-actions">
-            <div className="pd-theme-switch" role="group" aria-label="Dashboard appearance">{["light", "dark"].map(value => <button key={value} type="button" aria-pressed={theme === value} onClick={() => changeTheme(value)}>{value === "light" ? "Light" : "Dark"}</button>)}</div>
-            <div className="user">
-              <div className="user__avatar">{(patientName || data.patient.name || "P").charAt(0).toUpperCase()}</div>
-              <div className="user__name">{patientName || data.patient.name || "Patient"}</div>
-            </div>
-            <button className="pd__logout" type="button" onClick={() => { onLogout(); navigate("/", { replace: true }); }}>Sign out</button>
+            <p className="eyebrow">MEDSYNC CATMS</p>
+            <h2>{activeItem.label}</h2>
           </div>
         </header>
 
-        {appointmentNotice && <div className="pd__notice" role="status">{appointmentNotice}</div>}
-        {loading && <p className="muted" role="status">Loading your patient records…</p>}
-        {loadError && <p className="muted" role="alert">{loadError}</p>}
+        {appointmentNotice && <div className="success-notice" role="status">{appointmentNotice}</div>}
+        {loading && <div className="empty-state" role="status">Loading your patient records…</div>}
+        {loadError && <div className="notice" role="alert">{loadError}</div>}
         {!loading && !loadError && renderActivePage()}
       </main>
 
