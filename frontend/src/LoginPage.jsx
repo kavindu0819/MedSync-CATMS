@@ -141,9 +141,9 @@ export default function LoginPage() {
 
         <div className="auth__form-wrap">
           {mode === "login" ? (
-            <form className="auth__form" onSubmit={handleLoginSubmit}>
-              <h1>Welcome back</h1>
-              <p className="auth__lead">Sign in to your MedSync account.</p>
+            <form onSubmit={handleLoginSubmit}>
+              <p className="login-page__kicker">Authentication Portal</p>
+              <h1>Sign in to MedSync</h1>
 
               {/* Quick demo credentials picker */}
               <div className="login-page__demo-strip">
