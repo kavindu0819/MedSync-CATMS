@@ -68,7 +68,7 @@ export default function LoginPage() {
       setEmail("admins@medsync.lk");
       setPassword("admin123");
     } else {
-      setEmail("patient4@medsync.lk");
+      setEmail("sewwandi.silva@example.com"); // patient 4, seeded by Database/10_login_modify.sql
       setPassword("patient123");
     }
   }
