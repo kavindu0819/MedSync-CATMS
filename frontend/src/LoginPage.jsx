@@ -67,6 +67,9 @@ export default function LoginPage() {
     if (role === "admin") {
       setEmail("admins@medsync.lk");
       setPassword("admin123");
+    } else if (role === "frontdesk") {
+      setEmail("tharindu.p@medsync.lk"); // STAFF role "Receptionist" -> front desk
+      setPassword("staff123");
     } else {
       setEmail("sewwandi.silva@example.com"); // patient 4, seeded by Database/10_login_modify.sql
       setPassword("patient123");
@@ -202,6 +205,10 @@ export default function LoginPage() {
                 Demo:{" "}
                 <button type="button" className="auth__link" onClick={() => handleSelectDemo("admin")}>
                   Admin
+                </button>
+                {" · "}
+                <button type="button" className="auth__link" onClick={() => handleSelectDemo("frontdesk")}>
+                  Front desk
                 </button>
                 {" · "}
                 <button type="button" className="auth__link" onClick={() => handleSelectDemo("patient")}>

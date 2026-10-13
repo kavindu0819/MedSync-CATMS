@@ -1,4 +1,5 @@
 import axios from "axios";
+import { clearSession, getSession } from "./auth";
 
 // The backend runs separately from the React frontend.
 // Change this value only if the backend uses another port.
@@ -6,6 +7,33 @@ export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api",
   timeout: 8000,
 });
+
+// Send the signed-in user's token with every request, so the backend can
+// check who is asking (requireRole / requirePatient in server.js).
+api.interceptors.request.use((config) => {
+  const token = getSession()?.token;
+  if (token && !config.headers.Authorization) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// 401 means the server no longer recognises the session (expired, or the
+// backend restarted and forgot it). Send the user back to sign in rather than
+// leaving pages half-loaded. Login and sign-up answer 401 for a wrong password,
+// so those are left for the login page to show.
+const AUTH_PATHS = ["/auth/login", "/patient/register"];
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const isAuthRequest = AUTH_PATHS.some((path) => error.config?.url?.startsWith(path));
+    if (error.response?.status === 401 && !isAuthRequest) {
+      clearSession();
+      window.location.assign("/");
+    }
+    return Promise.reject(error);
+  }
+);
 
 // These paths are the API contract expected from the backend teammate.
 // Update the paths if your team chooses different names.
@@ -71,6 +99,12 @@ export async function fetchOutstandingBalances(page) {
 
 export async function fetchInsuranceCoverage(page) {
   const response = await api.get("/reports/insurance-coverage", { params: { page } });
+  return response.data;
+}
+
+// Admin and front desk only (server.js checks the role).
+export async function createPatient(patient) {
+  const response = await api.post("/patients", patient);
   return response.data;
 }
 
