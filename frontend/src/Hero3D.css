@@ -121,202 +121,8 @@
   }
 }
 
-.reticle__tag {
-  position: absolute;
-  bottom: -28px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-  font-family: monospace;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  color: #38bdf8;
-  text-shadow: 0 0 8px rgba(56, 189, 248, 0.7);
-  background: rgba(60, 135, 182, 0.874);
-  padding: 3px 8px;
-  border-radius: 6px;
-  border: 1px solid rgba(56, 189, 248, 0.3);
-}
-
-.reticle__pulse {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #f43f5e;
-  box-shadow: 0 0 8px #f43f5e;
-  animation: hudDotPulse 1.2s infinite;
-}
-
-/* ================= Clinical Telemetry HUD Card ================= */
-.hero3d__hud {
-  position: absolute;
-  top: 36px;
-  left: clamp(340px, 35vw, 47vw);
-  width: 260px;
-  padding: 16px 18px;
-  border-radius: 18px;
-  color: #e2e8f0;
-  font-size: 12px;
-  background: rgba(13, 27, 48, 0.68);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  z-index: 4;
-  pointer-events: auto;
-  transition: transform 0.15s ease-out;
-}
-
-.hud__header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-}
-
-.hud__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #22c55e;
-  box-shadow: 0 0 8px #22c55e;
-  animation: hudDotPulse 1.6s infinite;
-}
-
-@keyframes hudDotPulse {
-  0% {
-    transform: scale(1);
-    opacity: 1;
-  }
-
-  50% {
-    transform: scale(1.3);
-    opacity: 0.6;
-  }
-
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-.hud__status {
-  color: #94a3b8;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.8px;
-}
-
-.hud__badge {
-  margin-left: auto;
-  font-size: 9px;
-  font-weight: 700;
-  color: #38bdf8;
-  background: rgba(56, 189, 248, 0.15);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-/* ECG Heartbeat Monitor Waveform */
-.hud__wave-wrap {
-  position: relative;
-  overflow: hidden;
-  height: 44px;
-  margin: 10px 0;
-  background: rgba(10, 20, 36, 0.5);
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.hud__ecg {
-  width: 100%;
-  height: 100%;
-}
-
-.hud__ecg polyline {
-  fill: none;
-  stroke: #f43f5e;
-  stroke-width: 2;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-  filter: drop-shadow(0 0 4px #f43f5e);
-  stroke-dasharray: 260;
-  stroke-dashoffset: 260;
-  animation: ecgFlow 2.4s linear infinite;
-}
-
-@keyframes ecgFlow {
-  to {
-    stroke-dashoffset: -260;
-  }
-}
-
-.hud__sweep-line {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 20px;
-  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.25));
-  animation: sweepMove 2.4s linear infinite;
-  pointer-events: none;
-}
-
-@keyframes sweepMove {
-  0% {
-    left: -20px;
-  }
-
-  100% {
-    left: 100%;
-  }
-}
-
-/* HUD Vitals Row */
-.hud__stats {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding-top: 10px;
-}
-
-.hud__stat small {
-  display: block;
-  color: #94a3b8;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  margin-bottom: 2px;
-}
-
-.hud__stat b {
-  font-size: 14px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: #f8fafc;
-}
-
-.stat__unit {
-  font-size: 10px;
-  color: #64748b;
-  font-weight: 500;
-}
-
 /* ================= Responsive Rules ================= */
 @media (max-width: 1200px) {
-  .hero3d__hud {
-    width: 230px;
-    padding: 12px 14px;
-    left: clamp(300px, 32vw, 45vw);
-  }
-
   .hero3d__reticle {
     width: 130px;
     height: 130px;
@@ -326,7 +132,6 @@
 
 @media (max-width: 900px) {
 
-  .hero3d__hud,
   .hero3d__reticle {
     display: none;
   }
@@ -334,12 +139,8 @@
 
 @media (prefers-reduced-motion: reduce) {
 
-  .hud__dot,
-  .hud__ecg polyline,
   .reticle__ring,
-  .reticle__scan-beam,
-  .hud__sweep-line {
+  .reticle__scan-beam {
     animation: none;
-    stroke-dashoffset: 0;
   }
 }

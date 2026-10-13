@@ -227,3 +227,14 @@ td { color: #334155; }
 .app-shell[data-theme="light"] .theme-switch button[aria-pressed="true"] { background:#fff;color:#176e67;box-shadow:0 1px 3px #1d53431a; }
 .app-shell[data-theme="light"] button:focus-visible,.app-shell[data-theme="light"] input:focus-visible,.app-shell[data-theme="light"] select:focus-visible { outline-color:#438c82; }
 @media(max-width:750px) { .app-shell[data-theme="light"] .summary-card:nth-child(2) { border-right:0; }.app-shell[data-theme="light"] .summary-card:nth-child(3),.app-shell[data-theme="light"] .summary-card:nth-child(4) { border-top:1px solid #dce6e5; }.app-shell[data-theme="light"] .summary-card:nth-child(n+5) { border-right:0; }.app-shell .theme-switch { margin-right:0; } }
+
+/* ---------- Patients tab (front desk + admin) ---------- */
+.app-shell .patient-form { display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));align-items:end; }
+.app-shell .patient-form label { min-width:0; }
+.app-shell .patient-form__wide { grid-column:span 2; }
+.app-shell .patient-form__actions { grid-column:1/-1;display:flex;justify-content:flex-end; }
+.app-shell .patient-form__intro { margin:0 0 18px; }
+.app-shell .patient-form .primary-button:disabled { opacity:.6;cursor:wait; }
+.app-shell .success-notice { margin-bottom:18px;padding:12px 14px;border-radius:5px;font-size:12px;line-height:1.5;color:#b7f0cf;background:#1f5a3c44;border:1px solid #4fbf8455;border-left:3px solid #4fbf84; }
+.app-shell[data-theme="light"] .success-notice { color:#1d6b43;background:#eef9f2;border-color:#cfe9da;border-left-color:#2f9e63; }
+@media(max-width:750px) { .app-shell .patient-form__wide { grid-column:auto; } }

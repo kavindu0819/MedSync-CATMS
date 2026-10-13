@@ -10,7 +10,7 @@ import RoleRoute from './RoleRoute.jsx'
 
 function AdminRouteWrapper() {
   const session = getSession();
-  return <App user={session?.user} onLogout={clearSession} />;
+  return <App user={session?.user} role={session?.role} onLogout={clearSession} />;
 }
 
 function PatientRouteWrapper() {
@@ -33,7 +33,7 @@ createRoot(document.getElementById('root')).render(
         <Route
           path="/admin"
           element={
-            <RoleRoute role="ADMIN">
+            <RoleRoute role={["ADMIN", "FRONTDESK"]}>
               <AdminRouteWrapper />
             </RoleRoute>
           }

@@ -12,12 +12,13 @@ import {
 } from "recharts";
 import { api, checkBackend, fetchOverviewSummary, fetchReport,
          fetchBranches, fetchBranchMonths, fetchBranchAppointments,
-         fetchOutstandingBalances, fetchInsuranceCoverage } from "./api";
+         fetchOutstandingBalances, fetchInsuranceCoverage, createPatient } from "./api";
 
 import "./App.css";
 
 const reportNames = [
   "Overview",
+  "Patients",
   "Branch appointments",
   "Doctor revenue",
   "Outstanding balances",
@@ -252,8 +253,14 @@ function Overview({ backendStatus, onSelectReport }) {
             <div><span className="dot orange"></span><span>Report APIs</span><strong>confirm with team</strong></div>
             <div><span className="dot green"></span><span>Frontend</span><strong>running</strong></div>
           </div>
-          <p className="panel-note">Select a report from the menu. Demo rows are replaced automatically when the backend returns real rows.</p>
-          <button className="secondary-button" onClick={() => onSelectReport("Branch appointments")}>Open first report</button>
+          {onSelectReport ? (
+            <>
+              <p className="panel-note">Select a report from the menu. Demo rows are replaced automatically when the backend returns real rows.</p>
+              <button className="secondary-button" onClick={() => onSelectReport("Branch appointments")}>Open first report</button>
+            </>
+          ) : (
+            <p className="panel-note">Use Patients in the menu to register someone new at the front desk.</p>
+          )}
         </div>
       </section>
     </>
@@ -581,6 +588,7 @@ function App({ user, onLogout }) {
   const loadReport = useCallback(async () => {
     if (isDoctor) return;
     if (activeReport === "Overview") return;
+    if (activeReport === "Patients") return;
     if (activeReport === "Branch appointments") return;
     if (activeReport === "Outstanding balances") return;
     if (activeReport === "Insurance coverage") return;
