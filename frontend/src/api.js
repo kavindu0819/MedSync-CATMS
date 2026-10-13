@@ -108,6 +108,13 @@ export async function createPatient(patient) {
   return response.data;
 }
 
+// Doctor only. scope: "today" | "upcoming" | "past" (server.js decides which
+// doctor from the session token).
+export async function fetchDoctorAppointments(scope) {
+  const response = await api.get("/doctor/appointments", { params: { scope } });
+  return response.data.appointments;
+}
+
 export async function checkBackend() {
   // The current backend already has this route in server.js.
   const response = await api.get("/doctors");
