@@ -309,6 +309,40 @@ app.get('/api/doctor/appointments', requireRole('DOCTOR'), async (req, res) => {
   }
 });
 
+// PATCH /api/doctor/appointments/:id/complete
+// The signed-in doctor marks one of their own appointments Completed. All the
+// rules are in the WHERE clause, so it changes nothing unless the appointment
+// is theirs, still Scheduled, and has already started (Sri Lanka time).
+// trg_appointment_audit (05_triggers.sql) records the change automatically.
+app.patch('/api/doctor/appointments/:id/complete', requireRole('DOCTOR'), async (req, res) => {
+  if (!/^[1-9]\d*$/.test(req.params.id)) {
+    return res.status(400).json({ success: false, message: 'Invalid appointment ID.' });
+  }
+  try {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const localNow = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+
+    const [result] = await pool.query(
+      `UPDATE APPOINTMENT SET status = 'Completed'
+       WHERE appointment_id = ? AND doctor_id = ? AND status = 'Scheduled'
+         AND TIMESTAMP(appointment_date, scheduled_start) <= ?`,
+      [req.params.id, req.session.staffId, localNow]
+    );
+
+    if (!result.affectedRows) {
+      return res.status(409).json({
+        success: false,
+        message: 'This appointment cannot be completed. It may not have started yet, already be completed or cancelled, or belong to another doctor.',
+      });
+    }
+    res.json({ success: true, message: 'Appointment marked as completed.' });
+  } catch (error) {
+    console.error('Error completing appointment:', error.message);
+    res.status(500).json({ success: false, message: 'Could not update the appointment. Please try again.' });
+  }
+});
+
 // Appointment availability for patient self-service booking.
 // Patients may choose ANY branch. Doctors are filtered to the selected branch.
 app.get('/api/appointments/availability', async (req, res) => {
