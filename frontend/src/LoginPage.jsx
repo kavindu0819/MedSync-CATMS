@@ -3,8 +3,33 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { authenticate } from "./login";
 import { dashboardPath, getSession, saveSession } from "./auth";
 import { registerPatient } from "./api";
-import Hero3D from "./Hero3D";
+import heroImage from "./assets/hero.jpg";
 import "./LoginPage.css";
+
+// Right-hand image panel copy, one set per mode.
+const HERO_COPY = {
+  login: {
+    title: "Every branch, one clear picture.",
+    text: "Appointments, doctors, billing and insurance for every MedSync clinic in one secure platform.",
+  },
+  register: {
+    title: "Your health records, wherever you visit.",
+    text: "Link your NIC once to see your appointments, bills and insurance claims across every MedSync branch.",
+  },
+};
+
+function Logo() {
+  return (
+    <div className="auth__logo">
+      <span className="auth__logo-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="16" height="16">
+          <path d="M10 3h4v7h7v4h-7v7h-4v-7H3v-4h7z" fill="currentColor" />
+        </svg>
+      </span>
+      MedSync
+    </div>
+  );
+}
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -30,11 +55,15 @@ export default function LoginPage() {
     return <Navigate to={dashboardPath(existingSession.role)} replace />;
   }
 
-  // Quick fill helper for testing
-  function handleSelectDemo(role) {
+  function switchMode(next) {
+    setMode(next);
     setError("");
     setSuccessMsg("");
-    setMode("login");
+  }
+
+  // Quick fill helper for testing
+  function handleSelectDemo(role) {
+    switchMode("login");
     if (role === "admin") {
       setEmail("admins@medsync.lk");
       setPassword("admin123");
@@ -44,11 +73,6 @@ export default function LoginPage() {
     }
   }
 
-  // Predicted destination based on typed email
-  const normalizedTypedEmail = email.trim().toLowerCase();
-  const isAdminEmail =
-    normalizedTypedEmail.includes("admin") ||
-    normalizedTypedEmail.endsWith("@medsync.lk") && !normalizedTypedEmail.includes("patient");
   async function handleLoginSubmit(event) {
     event.preventDefault();
     setError("");
@@ -84,132 +108,52 @@ export default function LoginPage() {
     try {
       const res = await registerPatient(regNic.trim(), regEmail.trim(), regPassword);
       if (res.success) {
-        setSuccessMsg("Account successfully registered! You can now sign in.");
         setEmail(regEmail.trim());
         setPassword(regPassword);
         setMode("login");
+        setSuccessMsg("Account created. You can sign in now.");
       } else {
         setError(res.message || "Registration failed.");
       }
     } catch (err) {
       setError(
         err.response?.data?.message ||
-        "Registration failed. Please verify that your NIC is registered in hospital records."
+        "Registration failed. Please check that your NIC is registered at a MedSync branch."
       );
     } finally {
       setBusy(false);
     }
   }
 
+  const hero = HERO_COPY[mode];
+
   return (
-    <main className="login-page">
-      <Hero3D />
-      <section className="login-page__hero">
-        <div className="login-page__brand">
-          <span className="login-page__logo">M</span>
-          <span>
-            <strong>MedSync</strong>
-            <small>CATMS Healthcare Platform</small>
-          </span>
-        </div>
+    <main className="auth">
+      <section className="auth__panel">
+        <Logo />
 
-        <div className="login-page__message">
-          <h2>Every branch,<br />one clear picture.</h2>
-          <p>
-            Unified Clinical & Administrative Task Management System. Instant access
-            to appointments, doctors, billing, and health records.
-          </p>
-        </div>
-
-        <div className="login-page__callouts">
-          <div className="login-page__callout">
-            <span className="login-page__callout-dot dot--blue" />
-            <div>
-              <strong>Role-Aware Access</strong>
-              <p>Patients are routed to their personal care dashboard; admins to clinic analytics.</p>
-            </div>
-          </div>
-          <div className="login-page__callout">
-            <span className="login-page__callout-dot dot--green" />
-            <div>
-              <strong>Secure MySQL Integration</strong>
-              <p>Backed by encrypted authentication and live relational views.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="login-page__panel">
-        <div className="login-page__card">
-          <div className="login-page__tabs">
-            <button
-              type="button"
-              className={`login-page__tab ${mode === "login" ? "active" : ""}`}
-              onClick={() => { setMode("login"); setError(""); setSuccessMsg(""); }}
-            >
-              Sign In
-            </button>
-            <button
-              type="button"
-              className={`login-page__tab ${mode === "register" ? "active" : ""}`}
-              onClick={() => { setMode("register"); setError(""); setSuccessMsg(""); }}
-            >
-              Patient Sign Up
-            </button>
-          </div>
-
+        <div className="auth__form-wrap">
           {mode === "login" ? (
-            <form onSubmit={handleLoginSubmit}>
-              <p className="login-page__kicker">Authentication Portal</p>
-              <h1>Sign in to MedSync</h1>
+            <form className="auth__form" onSubmit={handleLoginSubmit}>
+              <h1>Welcome back</h1>
+              <p className="auth__lead">Sign in to your MedSync account.</p>
 
-              {/* Quick demo credentials picker */}
-              <div className="login-page__demo-strip">
-                <span className="demo-strip__label">Quick Test:</span>
-                <button
-                  type="button"
-                  className="demo-chip demo-chip--admin"
-                  onClick={() => handleSelectDemo("admin")}
-                  title="Fills admin email & password"
-                >
-                  👔 Admin Demo
-                </button>
-                <button
-                  type="button"
-                  className="demo-chip demo-chip--patient"
-                  onClick={() => handleSelectDemo("patient")}
-                  title="Fills patient email & password"
-                >
-                  🩺 Patient Demo
-                </button>
-              </div>
-
-              <label className="login-page__field">
-                <span>Email address</span>
+              <label className="auth__field">
+                <span>Email</span>
                 <input
                   type="email"
                   name="email"
                   autoComplete="username"
-                  placeholder="e.g. admins@medsync.lk or patient4@medsync.lk"
+                  placeholder="Enter your email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   required
                 />
               </label>
 
-              {/* Dynamic route destination badge */}
-              {email.trim() && (
-                <div className={`login-page__route-hint ${isAdminEmail ? "hint--admin" : "hint--patient"}`}>
-                  <span className="hint-icon">{isAdminEmail ? "🛡️" : "🩺"}</span>
-                  <span>
-                    Destined for: <strong>{isAdminEmail ? "Main Admin Dashboard (/admin)" : "Patient Dashboard (/patient)"}</strong>
-                  </span>
-                </div>
-              )}
-
-              <label className="login-page__field">
+              <label className="auth__field">
                 <span>Password</span>
-                <span className="login-page__password">
+                <span className="auth__password">
                   <input
                     type={showPassword ? "text" : "password"}
                     name="password"
@@ -221,7 +165,7 @@ export default function LoginPage() {
                     minLength={6}
                   />
                   <button
-                    className="login-page__toggle"
+                    className="auth__toggle"
                     type="button"
                     onClick={() => setShowPassword((visible) => !visible)}
                     aria-label={showPassword ? "Hide password" : "Show password"}
@@ -231,78 +175,95 @@ export default function LoginPage() {
                 </span>
               </label>
 
-              <div className="login-page__options">
-                <label className="login-page__remember">
-                  <input
-                    type="checkbox"
-                    checked={remember}
-                    onChange={(event) => setRemember(event.target.checked)}
-                  />
-                  Keep me signed in
-                </label>
-                <span className="demo-hint-text">
-                  Admin: <code>admin123</code> · Patient: <code>patient123</code>
-                </span>
-              </div>
+              <label className="auth__remember">
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(event) => setRemember(event.target.checked)}
+                />
+                Keep me signed in
+              </label>
 
-              {error && <div className="login-page__error" role="alert">{error}</div>}
-              {successMsg && <div className="login-page__success" role="status">{successMsg}</div>}
+              {error && <div className="auth__alert auth__alert--error" role="alert">{error}</div>}
+              {successMsg && <div className="auth__alert auth__alert--success" role="status">{successMsg}</div>}
 
-              <button className="login-page__submit" type="submit" disabled={busy}>
-                {busy ? "Signing in…" : "Sign In to Dashboard"}
+              <button className="auth__submit" type="submit" disabled={busy}>
+                {busy ? "Signing in…" : "Sign in"}
               </button>
-            </form>
-          ) : (
-            <form onSubmit={handleRegisterSubmit}>
-              <p className="login-page__kicker">Patient Registration</p>
-              <h1>Create Patient Portal</h1>
-              <p className="login-page__sub">
-                Connect your hospital NIC with an email and password to access your health records.
+
+              <p className="auth__switch">
+                New patient?{" "}
+                <button type="button" className="auth__link" onClick={() => switchMode("register")}>
+                  Create an account
+                </button>
               </p>
 
-              <label className="login-page__field">
-                <span>National Identity Card (NIC)</span>
+              <p className="auth__demo">
+                Demo:{" "}
+                <button type="button" className="auth__link" onClick={() => handleSelectDemo("admin")}>
+                  Admin
+                </button>
+                {" · "}
+                <button type="button" className="auth__link" onClick={() => handleSelectDemo("patient")}>
+                  Patient
+                </button>
+              </p>
+            </form>
+          ) : (
+            <form className="auth__form" onSubmit={handleRegisterSubmit}>
+              <h1>Create your account</h1>
+              <p className="auth__lead">
+                Use the NIC registered at your MedSync branch to access your health records.
+              </p>
+
+              <label className="auth__field">
+                <span>NIC number</span>
                 <input
                   type="text"
                   name="nic"
-                  placeholder="e.g. NIC0000001 or hospital registered NIC"
+                  autoComplete="off"
+                  placeholder="Enter your NIC"
                   value={regNic}
                   onChange={(event) => setRegNic(event.target.value)}
                   required
                 />
               </label>
 
-              <label className="login-page__field">
-                <span>Email address</span>
+              <label className="auth__field">
+                <span>Email</span>
                 <input
                   type="email"
                   name="email"
-                  placeholder="your.email@example.com"
+                  autoComplete="email"
+                  placeholder="Enter your email"
                   value={regEmail}
                   onChange={(event) => setRegEmail(event.target.value)}
                   required
                 />
               </label>
 
-              <label className="login-page__field">
-                <span>Create Password</span>
+              <label className="auth__field">
+                <span>Password</span>
                 <input
                   type="password"
                   name="password"
-                  placeholder="Minimum 6 characters"
+                  autoComplete="new-password"
+                  placeholder="Create a password"
                   value={regPassword}
                   onChange={(event) => setRegPassword(event.target.value)}
                   required
                   minLength={6}
                 />
+                <small className="auth__hint">Must be at least 6 characters.</small>
               </label>
 
-              <label className="login-page__field">
-                <span>Confirm Password</span>
+              <label className="auth__field">
+                <span>Confirm password</span>
                 <input
                   type="password"
                   name="confirmPassword"
-                  placeholder="Confirm password"
+                  autoComplete="new-password"
+                  placeholder="Re-enter your password"
                   value={regConfirm}
                   onChange={(event) => setRegConfirm(event.target.value)}
                   required
@@ -310,16 +271,38 @@ export default function LoginPage() {
                 />
               </label>
 
-              {error && <div className="login-page__error" role="alert">{error}</div>}
-              {successMsg && <div className="login-page__success" role="status">{successMsg}</div>}
+              {error && <div className="auth__alert auth__alert--error" role="alert">{error}</div>}
 
-              <button className="login-page__submit" type="submit" disabled={busy}>
-                {busy ? "Registering…" : "Register & Activate Portal"}
+              <button className="auth__submit" type="submit" disabled={busy}>
+                {busy ? "Creating account…" : "Create account"}
               </button>
+
+              <p className="auth__switch">
+                Already have an account?{" "}
+                <button type="button" className="auth__link" onClick={() => switchMode("login")}>
+                  Sign in
+                </button>
+              </p>
             </form>
           )}
         </div>
-        <p className="login-page__footer">© 2026 MedSync CATMS · Clinical & Administrative Management</p>
+
+        <footer className="auth__footer">
+          <span>© 2026 MedSync CATMS</span>
+          <span>Trouble signing in? Ask at any branch front desk.</span>
+        </footer>
+      </section>
+
+      <section className="auth__hero" style={{ backgroundImage: `url(${heroImage})` }}>
+        <div className="auth__hero-content">
+          <h2>{hero.title}</h2>
+          <p>{hero.text}</p>
+          <div className="auth__branches">
+            <span>Colombo</span>
+            <span>Kandy</span>
+            <span>Galle</span>
+          </div>
+        </div>
       </section>
     </main>
   );
