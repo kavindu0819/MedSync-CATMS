@@ -7,6 +7,8 @@ const dbConfig = {
   user: process.env.DB_USER || 'medsync_app',
   password: process.env.DB_PASSWORD || 'medsync_pass',
   database: process.env.DB_NAME || 'medsync',
+  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: true } : undefined,
   // Return DATE/DATETIME columns as plain strings ('2025-02-04') instead of JS
   // Dates. Without this mysql2 builds the Date at local midnight and JSON
   // serialises it as UTC, so every date arrives shifted back by 5h30m.
