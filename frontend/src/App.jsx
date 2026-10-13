@@ -12,12 +12,13 @@ import {
 } from "recharts";
 import { api, checkBackend, fetchOverviewSummary, fetchReport,
          fetchBranches, fetchBranchMonths, fetchBranchAppointments,
-         fetchOutstandingBalances, fetchInsuranceCoverage } from "./api";
+         fetchOutstandingBalances, fetchInsuranceCoverage, createPatient } from "./api";
 
 import "./App.css";
 
 const reportNames = [
   "Overview",
+  "Patients",
   "Branch appointments",
   "Doctor revenue",
   "Outstanding balances",
@@ -285,8 +286,14 @@ function Overview({ backendStatus, onSelectReport }) {
             <div><span className="dot orange"></span><span>Report APIs</span><strong>confirm with team</strong></div>
             <div><span className="dot green"></span><span>Frontend</span><strong>running</strong></div>
           </div>
-          <p className="panel-note">Select a report from the menu. Demo rows are replaced automatically when the backend returns real rows.</p>
-          <button className="secondary-button" onClick={() => onSelectReport("Branch appointments")}>Open first report</button>
+          {onSelectReport ? (
+            <>
+              <p className="panel-note">Select a report from the menu. Demo rows are replaced automatically when the backend returns real rows.</p>
+              <button className="secondary-button" onClick={() => onSelectReport("Branch appointments")}>Open first report</button>
+            </>
+          ) : (
+            <p className="panel-note">Use Patients in the menu to register someone new at the front desk.</p>
+          )}
         </div>
       </section>
     </>
@@ -570,8 +577,151 @@ function InsuranceCoverageReport() {
   );
 }
 
-function App({ user, onLogout }) {
+// Same rules as POST /api/patients in server.js, checked here first so staff
+// see mistakes before submitting.
+const NIC_PATTERN = /^(\d{9}[VvXx]|\d{12})$/;
+const PHONE_PATTERN = /^0\d{9}$/;
+const EMPTY_PATIENT = {
+  nic: "", first_name: "", last_name: "", dob: "", gender: "",
+  phone: "", address: "", guardian_nic: "",
+};
+
+function validatePatient(form) {
+  if (!NIC_PATTERN.test(form.nic.trim())) return "NIC must be 9 digits followed by V or X, or 12 digits.";
+  if (!form.first_name.trim() || !form.last_name.trim()) return "First and last name are required.";
+  if (!form.dob) return "Date of birth is required.";
+  if (new Date(`${form.dob}T00:00:00`) > new Date()) return "Date of birth cannot be in the future.";
+  if (!form.gender) return "Please choose a gender.";
+  if (form.phone.trim() && !PHONE_PATTERN.test(form.phone.trim())) return "Phone must be 10 digits starting with 0, e.g. 0771234567.";
+  if (form.guardian_nic.trim() && !NIC_PATTERN.test(form.guardian_nic.trim())) return "Guardian NIC must be 9 digits followed by V or X, or 12 digits.";
+  return "";
+}
+
+function AddPatientForm() {
+  const [form, setForm] = useState(EMPTY_PATIENT);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [added, setAdded] = useState(null); // the last patient added, for the success message
+
+  function update(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setError("");
+    setAdded(null);
+
+    const problem = validatePatient(form);
+    if (problem) {
+      setError(problem);
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await createPatient({
+        ...form,
+        nic: form.nic.trim().toUpperCase(),
+        guardian_nic: form.guardian_nic.trim().toUpperCase(),
+      });
+      setAdded({
+        id: res.patientId,
+        name: `${form.first_name.trim()} ${form.last_name.trim()}`,
+        nic: form.nic.trim().toUpperCase(),
+      });
+      setForm(EMPTY_PATIENT);
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not add the patient. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  return (
+    <section className="panel report-panel">
+      <div className="panel-heading">
+        <div><p className="eyebrow">FRONT DESK</p><h3>Register a new patient</h3></div>
+      </div>
+      <p className="panel-note patient-form__intro">
+        Add the patient here first. They can then create their own online account on the sign-up page using the same NIC.
+      </p>
+
+      {added && (
+        <div className="success-notice" role="status">
+          <strong>{added.name}</strong> was added as patient #{added.id}. They can now sign up online with NIC <strong>{added.nic}</strong>.
+        </div>
+      )}
+      {error && <div className="notice" role="alert">{error}</div>}
+
+      <form className="filter-bar patient-form" onSubmit={handleSubmit} noValidate>
+        <label>
+          <span>NIC *</span>
+          <input value={form.nic} onChange={(e) => update("nic", e.target.value)} placeholder="200012345678 or 991234567V" autoComplete="off" />
+        </label>
+        <label>
+          <span>First name *</span>
+          <input value={form.first_name} onChange={(e) => update("first_name", e.target.value)} autoComplete="off" />
+        </label>
+        <label>
+          <span>Last name *</span>
+          <input value={form.last_name} onChange={(e) => update("last_name", e.target.value)} autoComplete="off" />
+        </label>
+        <label>
+          <span>Date of birth *</span>
+          <input type="date" max={today} value={form.dob} onChange={(e) => update("dob", e.target.value)} />
+        </label>
+        <label>
+          <span>Gender *</span>
+          <select value={form.gender} onChange={(e) => update("gender", e.target.value)}>
+            <option value="">Choose…</option>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+            <option value="Other">Other</option>
+          </select>
+        </label>
+        <label>
+          <span>Phone</span>
+          <input value={form.phone} onChange={(e) => update("phone", e.target.value)} placeholder="0771234567" inputMode="tel" autoComplete="off" />
+        </label>
+        <label className="patient-form__wide">
+          <span>Address</span>
+          <input value={form.address} onChange={(e) => update("address", e.target.value)} autoComplete="off" />
+        </label>
+        <label>
+          <span>Guardian NIC (minors)</span>
+          <input value={form.guardian_nic} onChange={(e) => update("guardian_nic", e.target.value)} autoComplete="off" />
+        </label>
+        <div className="patient-form__actions">
+          <button className="primary-button" type="submit" disabled={busy}>
+            {busy ? "Adding…" : "Add patient"}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+// Which sidebar tabs each role sees. The backend enforces the same split.
+const TABS_BY_ROLE = {
+  ADMIN: reportNames,
+  FRONTDESK: ["Overview", "Patients"],
+};
+
+function App({ user, role, onLogout }) {
   const navigate = useNavigate();
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem("medsync-admin-theme") === "light" ? "light" : "dark"; }
+    catch { return "dark"; }
+  });
+  function changeTheme(nextTheme) {
+    setTheme(nextTheme);
+    try { localStorage.setItem("medsync-admin-theme", nextTheme); } catch { /* Keep session choice when storage is unavailable. */ }
+  }
+  const tabs = TABS_BY_ROLE[role] || TABS_BY_ROLE.ADMIN;
+  const isFrontDesk = role === "FRONTDESK";
   const [activeReport, setActiveReport] = useState("Overview");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -589,6 +739,7 @@ function App({ user, onLogout }) {
 
   const loadReport = useCallback(async () => {
     if (activeReport === "Overview") return;
+    if (activeReport === "Patients") return;
     if (activeReport === "Branch appointments") return;
     if (activeReport === "Outstanding balances") return;
     if (activeReport === "Insurance coverage") return;
@@ -632,11 +783,11 @@ function App({ user, onLogout }) {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-theme={theme}>
       <aside className="sidebar">
         <div className="brand"><div className="brand-icon">M</div><div><h1>MedSync</h1><p>CATMS Dashboard</p></div></div>
         <nav className="navigation">
-          {reportNames.map((report) => <button key={report} className={activeReport === report ? "nav-item active" : "nav-item"} onClick={() => selectReport(report)}>{report}</button>)}
+          {tabs.map((report) => <button key={report} className={activeReport === report ? "nav-item active" : "nav-item"} onClick={() => selectReport(report)}>{report}</button>)}
         </nav>
         <div className="sidebar-footer"><p>Clinic management system</p><span>Frontend v1.0</span></div>
       </aside>
@@ -645,14 +796,20 @@ function App({ user, onLogout }) {
         <header className="topbar">
           <div><p className="eyebrow">MEDSYNC CATMS</p><h2>{activeReport}</h2></div>
           <div className="user-chip">
+            <div className="theme-switch" role="group" aria-label="Dashboard appearance">
+              <button type="button" aria-pressed={theme === "light"} onClick={() => changeTheme("light")}>Light</button>
+              <button type="button" aria-pressed={theme === "dark"} onClick={() => changeTheme("dark")}>Dark</button>
+            </div>
             <span className="user-avatar">{(user?.name || "Admin").charAt(0).toUpperCase()}</span>
-            <span>{user?.name || "Administrator"}</span>
+            <span>{user?.name || "Administrator"}{isFrontDesk ? " · Front desk" : ""}</span>
             <button className="logout-button" type="button" onClick={() => { onLogout(); navigate("/", { replace: true }); }}>Sign out</button>
           </div>
         </header>
 
         {activeReport === "Overview" ? (
-          <Overview backendStatus={backendStatus} onSelectReport={selectReport} />
+          <Overview backendStatus={backendStatus} onSelectReport={isFrontDesk ? undefined : selectReport} />
+        ) : activeReport === "Patients" ? (
+          <AddPatientForm />
         ) : activeReport === "Branch appointments" ? (
           <BranchAppointmentsReport />
         ) : activeReport === "Outstanding balances" ? (

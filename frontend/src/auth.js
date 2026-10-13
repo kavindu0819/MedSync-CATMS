@@ -8,7 +8,7 @@ export function getSession() {
     const session = JSON.parse(saved);
     if (
       session?.success &&
-      ["ADMIN", "PATIENT"].includes(session.role) &&
+      ["ADMIN", "FRONTDESK", "PATIENT"].includes(session.role) &&
       session.user
     ) {
       return session;
