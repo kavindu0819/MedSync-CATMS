@@ -18,7 +18,7 @@ import DashboardSidebar from "./DashboardSidebar";
 import { useDashboardTheme } from "./useDashboardTheme";
 import {
   TAB_ICONS, UsersIcon, CalendarIcon, BuildingIcon,
-  StethoscopeIcon, ReceiptIcon, CoinsIcon, ClockIcon,
+  StethoscopeIcon, ReceiptIcon, CoinsIcon, ClockIcon, ShieldIcon,
 } from "./icons";
 
 import "./App.css";
@@ -222,7 +222,8 @@ function summaryCards(stats) {
     { label: "Branches", value: stats?.total_branches ?? "-", note: "Clinics in the system", tone: "mint", Icon: BuildingIcon },
     { label: "Doctors", value: stats?.total_doctors ?? "-", note: "On the staff list", tone: "lavender", Icon: StethoscopeIcon },
     { label: "Total billed", value: lkr(stats?.total_billed), note: "All invoices", tone: "blue", Icon: ReceiptIcon },
-    { label: "Total paid", value: lkr(stats?.total_collected), note: "Payments received", tone: "mint", Icon: CoinsIcon },
+    { label: "Paid by patients", value: lkr(stats?.total_collected), note: "Payments received", tone: "mint", Icon: CoinsIcon },
+    { label: "Paid by insurance", value: lkr(stats?.total_insurance), note: "Approved claims", tone: "lavender", Icon: ShieldIcon },
     { label: "Outstanding", value: lkr(stats?.outstanding_balance), note: "Still to be collected", tone: "pink", Icon: ClockIcon },
   ];
 }
@@ -283,7 +284,7 @@ function Overview({ backendStatus, onSelectReport }) {
       {error && <div className="notice">{error}</div>}
       {loading && !stats ? <div className="empty-state">Loading overview...</div> : null}
 
-      <section className="summary-grid">
+      <section className="summary-grid summary-grid--four">
         {summaryCards(stats).map(({ label, value, note, tone, Icon }) => (
           <div key={label} className={`summary-card tone-${tone}`}>
             <span className="summary-icon"><Icon size={22} /></span>

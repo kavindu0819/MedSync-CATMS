@@ -654,7 +654,13 @@ app.post('/api/appointments', async (req, res) => {
 
 app.get('/api/reports/summary', requireRole('ADMIN', 'FRONTDESK'), async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM v_dashboard_summary');
+    // total_insurance = approved claims, so the cards add up:
+    // total_billed = total_collected (patients) + total_insurance + outstanding_balance
+    const [rows] = await pool.query(
+      `SELECT s.*,
+              (SELECT COALESCE(SUM(approved_amount), 0) FROM INSURANCE_CLAIM) AS total_insurance
+       FROM v_dashboard_summary s`
+    );
     res.json(rows[0]);                    // single object, not an array
   } catch (e) {
     console.error('Error fetching dashboard summary:', e.message);
