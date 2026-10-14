@@ -123,8 +123,16 @@ export async function payInvoice(invoiceId, amount, method) {
 }
 
 // Doctor only: mark one of their own started, Scheduled appointments Completed.
-export async function completeDoctorAppointment(appointmentId) {
-  const response = await api.patch(`/doctor/appointments/${appointmentId}/complete`);
+// With treatmentIds the visit is also billed (sp_complete_appointment_and_bill).
+export async function completeDoctorAppointment(appointmentId, treatmentIds) {
+  const body = treatmentIds ? { treatmentIds } : undefined;
+  const response = await api.patch(`/doctor/appointments/${appointmentId}/complete`, body);
+  return response.data;
+}
+
+// Doctor only: the treatment catalogue to bill a visit from.
+export async function fetchTreatments() {
+  const response = await api.get("/treatments");
   return response.data;
 }
 
