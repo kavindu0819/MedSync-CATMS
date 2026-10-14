@@ -28,7 +28,7 @@ function readSession(req) {
 
 function requirePatient(req, res, next) {
   const session = readSession(req);
-  if (!session || session.role !== 'PATIENT') return res.status(401).json({success:false,message:'Please sign in again to manage appointments.'});
+  if (!session || session.role !== 'PATIENT') return res.status(401).json({success:false,message:'Please sign in again.'});
   req.patientId = session.patientId;
   next();
 }
@@ -840,6 +840,67 @@ app.patch('/api/patient/appointments/:id/cancel', requirePatient, async (req, re
   } catch (error) {
     console.error('Cancellation failed:', error.message);
     res.status(500).json({success:false,message:'Unable to cancel the appointment. Please try again.'});
+  }
+});
+
+// POST /api/patient/invoices/:id/pay   body: { amount, method }
+// The signed-in patient pays (part of) one of their own bills. This is a demo
+// payment: it records the amount and method, no card details are taken.
+// sp_record_payment (04_procedures.sql) runs it as one transaction and uses
+// fn_outstanding_balance to refuse overpaying; trg_update_invoice_on_payment
+// then updates the invoice's paid amount, balance and status.
+const PATIENT_PAYMENT_METHODS = ['Card', 'Bank Transfer'];
+
+app.post('/api/patient/invoices/:id/pay', requirePatient, async (req, res) => {
+  if (!/^[1-9]\d*$/.test(req.params.id)) {
+    return res.status(400).json({ success: false, message: 'Invalid invoice ID.' });
+  }
+  const amountText = String(req.body.amount ?? '').trim();
+  const amount = Number(amountText);
+  const method = req.body.method;
+  if (!/^\d+(\.\d{1,2})?$/.test(amountText) || amount <= 0) {
+    return res.status(400).json({ success: false, message: 'Enter an amount above 0 with at most 2 decimal places.' });
+  }
+  if (!PATIENT_PAYMENT_METHODS.includes(method)) {
+    return res.status(400).json({ success: false, message: 'Choose Card or Bank Transfer.' });
+  }
+
+  try {
+    // The bill must belong to the signed-in patient.
+    const [[invoice]] = await pool.query(
+      `SELECT i.invoice_id
+       FROM INVOICE i
+       JOIN APPOINTMENT a ON a.appointment_id = i.appointment_id
+       WHERE i.invoice_id = ? AND a.patient_id = ?`,
+      [req.params.id, req.patientId]
+    );
+    if (!invoice) {
+      return res.status(404).json({ success: false, message: 'Bill not found.' });
+    }
+
+    // Today's date in Sri Lanka time (TZ), not the database's UTC clock.
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    await pool.query('CALL sp_record_payment(?, ?, ?, ?)', [invoice.invoice_id, amountText, method, today]);
+
+    const [[after]] = await pool.query(
+      'SELECT fn_outstanding_balance(?) AS outstanding, status FROM INVOICE WHERE invoice_id = ?',
+      [invoice.invoice_id, invoice.invoice_id]
+    );
+    res.json({
+      success: true,
+      message: 'Payment recorded.',
+      outstanding: Number(after.outstanding),
+      status: after.status,
+    });
+  } catch (error) {
+    // SIGNAL in sp_record_payment: amount is more than what is still owed.
+    if (error.sqlState === '45000') {
+      return res.status(409).json({ success: false, message: 'That is more than you still owe on this bill.' });
+    }
+    console.error('Payment failed:', error.message);
+    res.status(500).json({ success: false, message: 'Could not record the payment. Please try again.' });
   }
 });
 
