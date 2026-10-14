@@ -1,5 +1,8 @@
-# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
-# More GitHub Actions for Azure: https://github.com/Azure/actions
+# Deploys the Express backend (backend/) to the Azure Web App "medsyncapi".
+# Runs when something in backend/ (or this file) changes on main, or by hand
+# from the Actions tab (workflow_dispatch). Azure runs `npm install` itself
+# after the upload because the app setting SCM_DO_BUILD_DURING_DEPLOYMENT=true.
+# Docs: https://github.com/Azure/webapps-deploy
 
 name: Build and deploy Node.js app to Azure Web App - medsyncapi
 
@@ -7,6 +10,9 @@ on:
   push:
     branches:
       - 'main'
+    paths:
+      - 'backend/**'
+      - '.github/workflows/main_medsyncapi.yml'
   workflow_dispatch:
 
 jobs:
@@ -19,15 +25,20 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Node.js version
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '22.x'
 
+      # Catches syntax errors before anything reaches Azure.
+      - name: Check backend syntax
+        run: node --check backend/server.js && node --check backend/docker_connect.js
+
+      # Only the backend folder is uploaded (node_modules is not in git).
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: .
+          path: backend
 
   deploy:
     runs-on: ubuntu-latest
@@ -41,7 +52,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: node-app
-      
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -56,4 +67,3 @@ jobs:
           app-name: 'medsyncapi'
           slot-name: 'Production'
           package: .
-          
