@@ -636,15 +636,16 @@ export default function PatientDashboard({ patientId, patientName, onLogout }) {
       <Panel eyebrow="BILLING" title="Bills and payments">
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Date</th><th>Treatment</th><th className="right">Amount</th><th className="right">Paid</th><th className="right">Still owed</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Treatment</th><th className="right">Amount</th><th className="right">Paid</th><th className="right">Insurance</th><th className="right">Still owed</th><th>Status</th><th></th></tr></thead>
             <tbody>
-              {data.bills.length === 0 && <tr><td colSpan="7" className="muted">No bills recorded.</td></tr>}
+              {data.bills.length === 0 && <tr><td colSpan="8" className="muted">No bills recorded.</td></tr>}
               {data.bills.map((bill) => (
                 <tr key={bill.id}>
                   <td>{formatDate(bill.date)}</td>
                   <td className="strong">{bill.treatment}</td>
                   <td className="right">{lkr(bill.amount)}</td>
                   <td className="right">{lkr(bill.paid)}</td>
+                  <td className="right">{bill.insurancePaid > 0 ? lkr(bill.insurancePaid) : "-"}</td>
                   <td className="right strong">{lkr(bill.outstanding)}</td>
                   <td><span className={STATUS_CLASS[bill.status] || "chip"}>{bill.status}</span></td>
                   <td className="right">
