@@ -1037,20 +1037,27 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
     }));
 
     // 4. Billing & invoices
+    // The money columns come from the functions in 03_functions.sql:
+    //   fn_treatment_charges   -> what the visit's treatments cost
+    //   fn_outstanding_balance -> total - payments - approved insurance (what is still owed)
+    //   fn_insurance_coverage  -> how much the patient's policy could cover
     const [invoiceRows] = await pool.query(`
-      SELECT 
+      SELECT
         i.invoice_id,
         i.total_amount,
         i.paid_amount,
-        i.balance_due,
         a.appointment_date,
+        fn_treatment_charges(i.appointment_id) AS charges,
+        fn_outstanding_balance(i.invoice_id)   AS outstanding,
+        fn_insurance_coverage(i.invoice_id)    AS insurance_estimate,
+        EXISTS (SELECT 1 FROM INSURANCE_CLAIM c WHERE c.invoice_id = i.invoice_id) AS claimed,
         COALESCE(GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', '), '') AS treatments
       FROM INVOICE i
       JOIN APPOINTMENT a ON i.appointment_id = a.appointment_id
       LEFT JOIN APPT_TREATMENT at ON at.appointment_id = a.appointment_id
       LEFT JOIN TREATMENT t ON t.treatment_id = at.treatment_id
       WHERE a.patient_id = ?
-      GROUP BY i.invoice_id, i.total_amount, i.paid_amount, i.balance_due, a.appointment_date
+      GROUP BY i.invoice_id, i.total_amount, i.paid_amount, a.appointment_date
       ORDER BY a.appointment_date DESC;
     `, [id]);
 
@@ -1061,7 +1068,7 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
     const formattedBills = invoiceRows.map((inv) => {
       const total = Number(inv.total_amount) || 0;
       const paid = Number(inv.paid_amount) || 0;
-      const due = Number(inv.balance_due) || 0;
+      const due = Number(inv.outstanding) || 0;
       totalBilled += total;
       totalPaid += paid;
       totalOutstanding += due;
@@ -1071,6 +1078,11 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
         date: inv.appointment_date,
         treatment: inv.treatments || 'No treatment details recorded',
         amount: total,
+        charges: Number(inv.charges) || 0,
+        paid,
+        outstanding: due,
+        insuranceEstimate: Number(inv.insurance_estimate) || 0,
+        claimed: Boolean(inv.claimed),
         status: due <= 0 ? 'Paid' : paid > 0 ? 'Partly paid' : 'Unpaid',
       };
     });
