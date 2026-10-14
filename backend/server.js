@@ -1204,6 +1204,8 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
         fn_treatment_charges(i.appointment_id) AS charges,
         fn_outstanding_balance(i.invoice_id)   AS outstanding,
         fn_insurance_coverage(i.invoice_id)    AS insurance_estimate,
+        (SELECT COALESCE(SUM(c.approved_amount), 0) FROM INSURANCE_CLAIM c
+         WHERE c.invoice_id = i.invoice_id)    AS insurance_paid,
         EXISTS (SELECT 1 FROM INSURANCE_CLAIM c WHERE c.invoice_id = i.invoice_id) AS claimed,
         COALESCE(GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', '), '') AS treatments
       FROM INVOICE i
@@ -1236,6 +1238,7 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
         paid,
         outstanding: due,
         insuranceEstimate: Number(inv.insurance_estimate) || 0,
+        insurancePaid: Number(inv.insurance_paid) || 0, // approved claims; amount = paid + insurance + still owed
         claimed: Boolean(inv.claimed),
         // Same rules as POST /api/patient/invoices/:id/claim (fn_insurance_coverage
         // is 0 when there is no valid policy or nothing claimable).
