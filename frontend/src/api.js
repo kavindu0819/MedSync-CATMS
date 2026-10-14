@@ -122,6 +122,12 @@ export async function payInvoice(invoiceId, amount, method) {
   return response.data;
 }
 
+// Patient only: claim insurance on one of their own bills (sp_lodge_insurance_claim).
+export async function claimInsurance(invoiceId) {
+  const response = await api.post(`/patient/invoices/${invoiceId}/claim`);
+  return response.data;
+}
+
 // Doctor only: mark one of their own started, Scheduled appointments Completed.
 // With treatmentIds the visit is also billed (sp_complete_appointment_and_bill).
 export async function completeDoctorAppointment(appointmentId, treatmentIds) {

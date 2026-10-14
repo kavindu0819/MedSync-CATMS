@@ -990,6 +990,74 @@ app.post('/api/patient/invoices/:id/pay', requirePatient, async (req, res) => {
   }
 });
 
+// POST /api/patient/invoices/:id/claim
+// The signed-in patient claims insurance on one of their own bills.
+// sp_lodge_insurance_claim (04_procedures.sql) works out the amount with
+// fn_insurance_coverage (claimable treatments x coverage %, capped at the
+// ceiling), records the claim as approved, and re-settles the bill with
+// fn_outstanding_balance, all in one transaction. (Demo: claims are approved
+// straight away; a real insurer would review them first.)
+app.post('/api/patient/invoices/:id/claim', requirePatient, async (req, res) => {
+  if (!/^[1-9]\d*$/.test(req.params.id)) {
+    return res.status(400).json({ success: false, message: 'Invalid invoice ID.' });
+  }
+  const conn = await pool.getConnection();
+  try {
+    const [[bill]] = await conn.query(
+      `SELECT i.invoice_id,
+              fn_insurance_coverage(i.invoice_id)  AS cover,
+              fn_outstanding_balance(i.invoice_id) AS owed,
+              EXISTS (SELECT 1 FROM INSURANCE_CLAIM c WHERE c.invoice_id = i.invoice_id) AS claimed,
+              (SELECT p.policy_id
+               FROM INSURANCE_POLICY p
+               WHERE p.patient_id = a.patient_id
+                 AND a.appointment_date BETWEEN p.valid_from AND p.valid_to
+               ORDER BY p.coverage_percentage DESC
+               LIMIT 1) AS policy_id
+       FROM INVOICE i
+       JOIN APPOINTMENT a ON a.appointment_id = i.appointment_id
+       WHERE i.invoice_id = ? AND a.patient_id = ?`,
+      [req.params.id, req.patientId]
+    );
+    if (!bill) {
+      return res.status(404).json({ success: false, message: 'Bill not found.' });
+    }
+    const cover = Number(bill.cover);
+    const owed = Number(bill.owed);
+    if (bill.claimed) {
+      return res.status(409).json({ success: false, message: 'Insurance has already been claimed for this bill.' });
+    }
+    if (!bill.policy_id) {
+      return res.status(409).json({ success: false, message: 'You had no valid insurance policy on the date of this visit.' });
+    }
+    if (cover <= 0) {
+      return res.status(409).json({ success: false, message: 'None of the treatments on this bill are covered by insurance.' });
+    }
+    if (cover > owed) {
+      return res.status(409).json({ success: false, message: 'Insurance would cover more than you still owe. Please ask at the front desk.' });
+    }
+
+    await conn.query('CALL sp_lodge_insurance_claim(?, ?, @claim_id)', [bill.invoice_id, bill.policy_id]);
+    const [[after]] = await conn.query(
+      `SELECT @claim_id AS claim_id, fn_outstanding_balance(?) AS outstanding,
+              (SELECT approved_amount FROM INSURANCE_CLAIM WHERE claim_id = @claim_id) AS approved`,
+      [bill.invoice_id]
+    );
+    res.json({
+      success: true,
+      message: 'Insurance claim approved.',
+      claimId: after.claim_id,
+      approved: Number(after.approved),
+      outstanding: Number(after.outstanding),
+    });
+  } catch (error) {
+    console.error('Insurance claim failed:', error.message);
+    res.status(500).json({ success: false, message: 'Could not lodge the insurance claim. Please try again.' });
+  } finally {
+    conn.release();
+  }
+});
+
 app.get('/api/patients/:id/dashboard', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1169,6 +1237,9 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
         outstanding: due,
         insuranceEstimate: Number(inv.insurance_estimate) || 0,
         claimed: Boolean(inv.claimed),
+        // Same rules as POST /api/patient/invoices/:id/claim (fn_insurance_coverage
+        // is 0 when there is no valid policy or nothing claimable).
+        canClaim: !inv.claimed && Number(inv.insurance_estimate) > 0 && Number(inv.insurance_estimate) <= due,
         status: due <= 0 ? 'Paid' : paid > 0 ? 'Partly paid' : 'Unpaid',
       };
     });

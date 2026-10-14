@@ -7,6 +7,7 @@ import {
   fetchBranches,
   fetchDoctorsByBranch,
   payInvoice,
+  claimInsurance,
 } from "./api";
 import { getSession } from "./auth";
 import DashboardSidebar from "./DashboardSidebar";
@@ -362,6 +363,53 @@ function PaymentDialog({ bill, onClose, onPaid }) {
   );
 }
 
+// Confirm an insurance claim. The amount shown is fn_insurance_coverage's estimate.
+function ClaimDialog({ bill, onClose, onClaimed }) {
+  const dialog = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { dialog.current.showModal(); }, []);
+
+  async function handleClaim() {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await claimInsurance(bill.id);
+      onClaimed(result);
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not lodge the claim. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <dialog ref={dialog} className="appointment-dialog" onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }} aria-labelledby="claim-title">
+      <div className="booking-modal__head">
+        <div><div className="eyebrow">BILL #{bill.id}</div><h2 id="claim-title">Claim insurance</h2></div>
+        <button type="button" className="booking-modal__close" onClick={onClose} disabled={busy} aria-label="Close">×</button>
+      </div>
+      <dl className="appointment-details">
+        <div><dt>Visit</dt><dd>{formatDate(bill.date)}</dd></div>
+        <div><dt>Treatment</dt><dd>{bill.treatment}</dd></div>
+        <div><dt>Still owed</dt><dd>{lkr(bill.outstanding)}</dd></div>
+        <div><dt>Insurance can cover</dt><dd className="ok">{lkr(bill.insuranceEstimate)}</dd></div>
+      </dl>
+      <div className="booking-form__note">
+        Covered: the claimable treatments × your policy's coverage %, up to its yearly limit. You pay the rest.
+        You can claim once per bill.
+      </div>
+      {error && <div className="booking-form__error" role="alert">{error}</div>}
+      <div className="booking-form__actions">
+        <button type="button" className="secondary-button" onClick={onClose} disabled={busy}>Cancel</button>
+        <button type="button" className="primary-button" onClick={handleClaim} disabled={busy}>
+          {busy ? "Claiming…" : `Claim ${lkr(bill.insuranceEstimate)}`}
+        </button>
+      </div>
+    </dialog>
+  );
+}
+
 export default function PatientDashboard({ patientId, patientName, onLogout }) {
   const navigate = useNavigate();
   const [selectedAppointment, setSelectedAppointment] = useState(null);
@@ -371,6 +419,7 @@ export default function PatientDashboard({ patientId, patientName, onLogout }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [payingBill, setPayingBill] = useState(null);
+  const [claimingBill, setClaimingBill] = useState(null);
   const [appointmentNotice, setAppointmentNotice] = useState("");
   const [dashboardState, setDashboardState] = useState({
     patientId: null,
@@ -599,11 +648,18 @@ export default function PatientDashboard({ patientId, patientName, onLogout }) {
                   <td className="right strong">{lkr(bill.outstanding)}</td>
                   <td><span className={STATUS_CLASS[bill.status] || "chip"}>{bill.status}</span></td>
                   <td className="right">
-                    {bill.outstanding > 0 && (
-                      <button type="button" className="secondary-button" onClick={() => { setAppointmentNotice(""); setPayingBill(bill); }}>
-                        Pay
-                      </button>
-                    )}
+                    <div className="pd__bill-actions">
+                      {bill.canClaim && (
+                        <button type="button" className="secondary-button" onClick={() => { setAppointmentNotice(""); setClaimingBill(bill); }}>
+                          Claim insurance
+                        </button>
+                      )}
+                      {bill.outstanding > 0 && (
+                        <button type="button" className="secondary-button" onClick={() => { setAppointmentNotice(""); setPayingBill(bill); }}>
+                          Pay
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -672,6 +728,17 @@ export default function PatientDashboard({ patientId, patientName, onLogout }) {
       </main>
 
       {selectedAppointment && <AppointmentDetails appointment={selectedAppointment} onClose={() => setSelectedAppointment(null)} onCancelled={() => { setSelectedAppointment(null); setAppointmentNotice("Appointment cancelled. Your appointment list and totals have been refreshed."); setRefreshKey(value => value + 1); }} />}
+      {claimingBill && (
+        <ClaimDialog
+          bill={claimingBill}
+          onClose={() => setClaimingBill(null)}
+          onClaimed={(result) => {
+            setClaimingBill(null);
+            setAppointmentNotice(`Insurance claim approved: ${lkr(result.approved)} on bill #${claimingBill.id}. Still owed on this bill: ${lkr(result.outstanding)}.`);
+            setRefreshKey((value) => value + 1);
+          }}
+        />
+      )}
       {payingBill && (
         <PaymentDialog
           bill={payingBill}
