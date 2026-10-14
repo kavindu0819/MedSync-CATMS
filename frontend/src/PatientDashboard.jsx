@@ -6,6 +6,7 @@ import {
   fetchAppointmentAvailability,
   fetchBranches,
   fetchDoctorsByBranch,
+  payInvoice,
 } from "./api";
 import { getSession } from "./auth";
 import DashboardSidebar from "./DashboardSidebar";
@@ -289,6 +290,78 @@ function AppointmentDetails({ appointment: a, onClose, onCancelled }) {
   </dialog>;
 }
 
+const PAYMENT_METHODS = ["Card", "Bank Transfer"];
+
+// Pay pop-up for one bill. Demo payment: records the amount and method only.
+function PaymentDialog({ bill, onClose, onPaid }) {
+  const dialog = useRef(null);
+  const [amount, setAmount] = useState(bill.outstanding.toFixed(2));
+  const [method, setMethod] = useState(PAYMENT_METHODS[0]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { dialog.current.showModal(); }, []);
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setError("");
+    const text = amount.trim();
+    const value = Number(text);
+    if (!/^\d+(\.\d{1,2})?$/.test(text) || value <= 0) {
+      setError("Enter an amount above 0 with at most 2 decimal places.");
+      return;
+    }
+    if (value > bill.outstanding) {
+      setError(`You only owe ${lkr(bill.outstanding)} on this bill.`);
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await payInvoice(bill.id, text, method);
+      onPaid(value, result.outstanding);
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not record the payment. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <dialog ref={dialog} className="appointment-dialog" onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }} aria-labelledby="payment-title">
+      <div className="booking-modal__head">
+        <div><div className="eyebrow">BILL #{bill.id}</div><h2 id="payment-title">Pay this bill</h2></div>
+        <button type="button" className="booking-modal__close" onClick={onClose} disabled={busy} aria-label="Close payment">×</button>
+      </div>
+      <dl className="appointment-details">
+        <div><dt>Visit</dt><dd>{formatDate(bill.date)}</dd></div>
+        <div><dt>Treatment</dt><dd>{bill.treatment}</dd></div>
+        <div><dt>Bill total</dt><dd>{lkr(bill.amount)}</dd></div>
+        <div><dt>Still owed</dt><dd>{lkr(bill.outstanding)}</dd></div>
+      </dl>
+      <form className="booking-form" onSubmit={handleSubmit} noValidate>
+        <label>
+          <span>Amount (LKR)</span>
+          <input id="payment-amount" type="number" min="0.01" step="0.01" max={bill.outstanding} inputMode="decimal"
+            value={amount} onChange={(event) => setAmount(event.target.value)} disabled={busy} required />
+        </label>
+        <label>
+          <span>Pay by</span>
+          <select id="payment-method" value={method} onChange={(event) => setMethod(event.target.value)} disabled={busy}>
+            {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </label>
+        <div className="booking-form__note">
+          Demo payment: no card details are needed. It is recorded on your bill straight away.
+        </div>
+        {error && <div className="booking-form__error" role="alert">{error}</div>}
+        <div className="booking-form__actions">
+          <button className="secondary-button" type="button" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary-button" type="submit" disabled={busy}>{busy ? "Paying…" : "Pay now"}</button>
+        </div>
+      </form>
+    </dialog>
+  );
+}
+
 export default function PatientDashboard({ patientId, patientName, onLogout }) {
   const navigate = useNavigate();
   const [selectedAppointment, setSelectedAppointment] = useState(null);
@@ -297,6 +370,7 @@ export default function PatientDashboard({ patientId, patientName, onLogout }) {
   const [active, setActive] = useState("overview");
   const [refreshKey, setRefreshKey] = useState(0);
   const [bookingOpen, setBookingOpen] = useState(false);
+  const [payingBill, setPayingBill] = useState(null);
   const [appointmentNotice, setAppointmentNotice] = useState("");
   const [dashboardState, setDashboardState] = useState({
     patientId: null,
@@ -513,15 +587,24 @@ export default function PatientDashboard({ patientId, patientName, onLogout }) {
       <Panel eyebrow="BILLING" title="Bills and payments">
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Date</th><th>Treatment</th><th className="right">Amount</th><th>Status</th></tr></thead>
+            <thead><tr><th>Date</th><th>Treatment</th><th className="right">Amount</th><th className="right">Paid</th><th className="right">Still owed</th><th>Status</th><th></th></tr></thead>
             <tbody>
-              {data.bills.length === 0 && <tr><td colSpan="4" className="muted">No bills recorded.</td></tr>}
+              {data.bills.length === 0 && <tr><td colSpan="7" className="muted">No bills recorded.</td></tr>}
               {data.bills.map((bill) => (
                 <tr key={bill.id}>
                   <td>{formatDate(bill.date)}</td>
                   <td className="strong">{bill.treatment}</td>
                   <td className="right">{lkr(bill.amount)}</td>
+                  <td className="right">{lkr(bill.paid)}</td>
+                  <td className="right strong">{lkr(bill.outstanding)}</td>
                   <td><span className={STATUS_CLASS[bill.status] || "chip"}>{bill.status}</span></td>
+                  <td className="right">
+                    {bill.outstanding > 0 && (
+                      <button type="button" className="secondary-button" onClick={() => { setAppointmentNotice(""); setPayingBill(bill); }}>
+                        Pay
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -589,6 +672,17 @@ export default function PatientDashboard({ patientId, patientName, onLogout }) {
       </main>
 
       {selectedAppointment && <AppointmentDetails appointment={selectedAppointment} onClose={() => setSelectedAppointment(null)} onCancelled={() => { setSelectedAppointment(null); setAppointmentNotice("Appointment cancelled. Your appointment list and totals have been refreshed."); setRefreshKey(value => value + 1); }} />}
+      {payingBill && (
+        <PaymentDialog
+          bill={payingBill}
+          onClose={() => setPayingBill(null)}
+          onPaid={(paidAmount, stillOwed) => {
+            setPayingBill(null);
+            setAppointmentNotice(`Payment of ${lkr(paidAmount)} recorded on bill #${payingBill.id}. Still owed on this bill: ${lkr(stillOwed)}.`);
+            setRefreshKey((value) => value + 1);
+          }}
+        />
+      )}
       {bookingOpen && (
         <BookingDialog
           patientId={patientId}

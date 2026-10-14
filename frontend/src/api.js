@@ -115,6 +115,13 @@ export async function fetchDoctorAppointments(scope) {
   return response.data.appointments;
 }
 
+// Patient only: pay (part of) one of their own bills. method: "Card" | "Bank Transfer".
+// server.js runs it through sp_record_payment, which refuses overpaying.
+export async function payInvoice(invoiceId, amount, method) {
+  const response = await api.post(`/patient/invoices/${invoiceId}/pay`, { amount, method });
+  return response.data;
+}
+
 // Doctor only: mark one of their own started, Scheduled appointments Completed.
 export async function completeDoctorAppointment(appointmentId) {
   const response = await api.patch(`/doctor/appointments/${appointmentId}/complete`);
