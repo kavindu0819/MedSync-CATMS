@@ -309,20 +309,45 @@ app.get('/api/doctor/appointments', requireRole('DOCTOR'), async (req, res) => {
   }
 });
 
-// PATCH /api/doctor/appointments/:id/complete
-// The signed-in doctor marks one of their own appointments Completed. All the
-// rules are in the WHERE clause, so it changes nothing unless the appointment
-// is theirs, still Scheduled, and has already started (Sri Lanka time).
-// trg_appointment_audit (05_triggers.sql) records the change automatically.
+// GET /api/treatments  -> the treatment catalogue a doctor picks from when billing a visit.
+app.get('/api/treatments', requireRole('DOCTOR'), async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT t.treatment_id, t.name, t.price, t.is_claimable, tc.category_name AS category
+       FROM TREATMENT t
+       JOIN TREATMENT_CATEGORY tc ON tc.category_id = t.category_id
+       ORDER BY tc.category_name, t.name`
+    );
+    res.json(rows.map((r) => ({ ...r, price: Number(r.price), is_claimable: Boolean(r.is_claimable) })));
+  } catch (error) {
+    console.error('Error fetching treatments:', error.message);
+    res.status(500).json({ success: false, message: 'Could not load treatments.' });
+  }
+});
+
+// PATCH /api/doctor/appointments/:id/complete   body (optional): { treatmentIds: [1, 6] }
+// The signed-in doctor marks one of their own appointments Completed. It must be
+// theirs, still Scheduled, and already started (Sri Lanka time).
+// trg_appointment_audit (05_triggers.sql) records the status change automatically.
+//
+// With treatmentIds the visit is also billed: the treatment lines go into
+// APPT_TREATMENT, then sp_complete_appointment_and_bill (04_procedures.sql)
+// marks it Completed, stamps today's prices and creates the invoice from
+// fn_treatment_charges, all in one transaction.
 app.patch('/api/doctor/appointments/:id/complete', requireRole('DOCTOR'), async (req, res) => {
   if (!/^[1-9]\d*$/.test(req.params.id)) {
     return res.status(400).json({ success: false, message: 'Invalid appointment ID.' });
   }
-  try {
-    const now = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    const localNow = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const localNow = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 
+  const treatmentIds = req.body?.treatmentIds;
+  if (treatmentIds !== undefined) {
+    return completeAndBill(req, res, treatmentIds, localNow);
+  }
+
+  try {
     const [result] = await pool.query(
       `UPDATE APPOINTMENT SET status = 'Completed'
        WHERE appointment_id = ? AND doctor_id = ? AND status = 'Scheduled'
@@ -342,6 +367,67 @@ app.patch('/api/doctor/appointments/:id/complete', requireRole('DOCTOR'), async 
     res.status(500).json({ success: false, message: 'Could not update the appointment. Please try again.' });
   }
 });
+
+async function completeAndBill(req, res, treatmentIds, localNow) {
+  const ids = Array.isArray(treatmentIds) ? treatmentIds.map(Number) : [];
+  if (!ids.length || ids.length > 20 || ids.some((n) => !Number.isInteger(n) || n < 1) || new Set(ids).size !== ids.length) {
+    return res.status(400).json({ success: false, message: 'Choose at least one treatment (each only once).' });
+  }
+
+  const conn = await pool.getConnection();
+  const inserted = []; // APPT_TREATMENT rows added by this request, removed again if billing fails
+  try {
+    // Same rules as plain completion, plus: not billed yet.
+    const [[appointment]] = await conn.query(
+      `SELECT a.appointment_id
+       FROM APPOINTMENT a
+       WHERE a.appointment_id = ? AND a.doctor_id = ? AND a.status = 'Scheduled'
+         AND TIMESTAMP(a.appointment_date, a.scheduled_start) <= ?
+         AND NOT EXISTS (SELECT 1 FROM INVOICE i WHERE i.appointment_id = a.appointment_id)`,
+      [req.params.id, req.session.staffId, localNow]
+    );
+    if (!appointment) {
+      return res.status(409).json({
+        success: false,
+        message: 'This appointment cannot be completed. It may not have started yet, already be completed, billed or cancelled, or belong to another doctor.',
+      });
+    }
+
+    const [found] = await conn.query('SELECT treatment_id FROM TREATMENT WHERE treatment_id IN (?)', [ids]);
+    if (found.length !== ids.length) {
+      return res.status(400).json({ success: false, message: 'One of the chosen treatments does not exist.' });
+    }
+
+    // price_snapshot is a placeholder: the procedure stamps the catalogue price.
+    for (const treatmentId of ids) {
+      const [row] = await conn.query(
+        'INSERT INTO APPT_TREATMENT (appointment_id, treatment_id, price_snapshot) VALUES (?, ?, 0)',
+        [appointment.appointment_id, treatmentId]
+      );
+      inserted.push(row.insertId);
+    }
+
+    await conn.query('CALL sp_complete_appointment_and_bill(?, @invoice_id)', [appointment.appointment_id]);
+    const [[bill]] = await conn.query(
+      'SELECT invoice_id, total_amount FROM INVOICE WHERE invoice_id = @invoice_id'
+    );
+
+    res.json({
+      success: true,
+      message: 'Appointment completed and billed.',
+      invoiceId: bill.invoice_id,
+      total: Number(bill.total_amount),
+    });
+  } catch (error) {
+    if (inserted.length) {
+      await conn.query('DELETE FROM APPT_TREATMENT WHERE appt_treatment_id IN (?)', [inserted]).catch(() => {});
+    }
+    console.error('Error completing and billing appointment:', error.message);
+    res.status(500).json({ success: false, message: 'Could not complete and bill the appointment. Please try again.' });
+  } finally {
+    conn.release();
+  }
+}
 
 // Appointment availability for patient self-service booking.
 // Patients may choose ANY branch. Doctors are filtered to the selected branch.
