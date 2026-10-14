@@ -309,20 +309,45 @@ app.get('/api/doctor/appointments', requireRole('DOCTOR'), async (req, res) => {
   }
 });
 
-// PATCH /api/doctor/appointments/:id/complete
-// The signed-in doctor marks one of their own appointments Completed. All the
-// rules are in the WHERE clause, so it changes nothing unless the appointment
-// is theirs, still Scheduled, and has already started (Sri Lanka time).
-// trg_appointment_audit (05_triggers.sql) records the change automatically.
+// GET /api/treatments  -> the treatment catalogue a doctor picks from when billing a visit.
+app.get('/api/treatments', requireRole('DOCTOR'), async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT t.treatment_id, t.name, t.price, t.is_claimable, tc.category_name AS category
+       FROM TREATMENT t
+       JOIN TREATMENT_CATEGORY tc ON tc.category_id = t.category_id
+       ORDER BY tc.category_name, t.name`
+    );
+    res.json(rows.map((r) => ({ ...r, price: Number(r.price), is_claimable: Boolean(r.is_claimable) })));
+  } catch (error) {
+    console.error('Error fetching treatments:', error.message);
+    res.status(500).json({ success: false, message: 'Could not load treatments.' });
+  }
+});
+
+// PATCH /api/doctor/appointments/:id/complete   body (optional): { treatmentIds: [1, 6] }
+// The signed-in doctor marks one of their own appointments Completed. It must be
+// theirs, still Scheduled, and already started (Sri Lanka time).
+// trg_appointment_audit (05_triggers.sql) records the status change automatically.
+//
+// With treatmentIds the visit is also billed: the treatment lines go into
+// APPT_TREATMENT, then sp_complete_appointment_and_bill (04_procedures.sql)
+// marks it Completed, stamps today's prices and creates the invoice from
+// fn_treatment_charges, all in one transaction.
 app.patch('/api/doctor/appointments/:id/complete', requireRole('DOCTOR'), async (req, res) => {
   if (!/^[1-9]\d*$/.test(req.params.id)) {
     return res.status(400).json({ success: false, message: 'Invalid appointment ID.' });
   }
-  try {
-    const now = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    const localNow = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const localNow = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 
+  const treatmentIds = req.body?.treatmentIds;
+  if (treatmentIds !== undefined) {
+    return completeAndBill(req, res, treatmentIds, localNow);
+  }
+
+  try {
     const [result] = await pool.query(
       `UPDATE APPOINTMENT SET status = 'Completed'
        WHERE appointment_id = ? AND doctor_id = ? AND status = 'Scheduled'
@@ -342,6 +367,67 @@ app.patch('/api/doctor/appointments/:id/complete', requireRole('DOCTOR'), async 
     res.status(500).json({ success: false, message: 'Could not update the appointment. Please try again.' });
   }
 });
+
+async function completeAndBill(req, res, treatmentIds, localNow) {
+  const ids = Array.isArray(treatmentIds) ? treatmentIds.map(Number) : [];
+  if (!ids.length || ids.length > 20 || ids.some((n) => !Number.isInteger(n) || n < 1) || new Set(ids).size !== ids.length) {
+    return res.status(400).json({ success: false, message: 'Choose at least one treatment (each only once).' });
+  }
+
+  const conn = await pool.getConnection();
+  const inserted = []; // APPT_TREATMENT rows added by this request, removed again if billing fails
+  try {
+    // Same rules as plain completion, plus: not billed yet.
+    const [[appointment]] = await conn.query(
+      `SELECT a.appointment_id
+       FROM APPOINTMENT a
+       WHERE a.appointment_id = ? AND a.doctor_id = ? AND a.status = 'Scheduled'
+         AND TIMESTAMP(a.appointment_date, a.scheduled_start) <= ?
+         AND NOT EXISTS (SELECT 1 FROM INVOICE i WHERE i.appointment_id = a.appointment_id)`,
+      [req.params.id, req.session.staffId, localNow]
+    );
+    if (!appointment) {
+      return res.status(409).json({
+        success: false,
+        message: 'This appointment cannot be completed. It may not have started yet, already be completed, billed or cancelled, or belong to another doctor.',
+      });
+    }
+
+    const [found] = await conn.query('SELECT treatment_id FROM TREATMENT WHERE treatment_id IN (?)', [ids]);
+    if (found.length !== ids.length) {
+      return res.status(400).json({ success: false, message: 'One of the chosen treatments does not exist.' });
+    }
+
+    // price_snapshot is a placeholder: the procedure stamps the catalogue price.
+    for (const treatmentId of ids) {
+      const [row] = await conn.query(
+        'INSERT INTO APPT_TREATMENT (appointment_id, treatment_id, price_snapshot) VALUES (?, ?, 0)',
+        [appointment.appointment_id, treatmentId]
+      );
+      inserted.push(row.insertId);
+    }
+
+    await conn.query('CALL sp_complete_appointment_and_bill(?, @invoice_id)', [appointment.appointment_id]);
+    const [[bill]] = await conn.query(
+      'SELECT invoice_id, total_amount FROM INVOICE WHERE invoice_id = @invoice_id'
+    );
+
+    res.json({
+      success: true,
+      message: 'Appointment completed and billed.',
+      invoiceId: bill.invoice_id,
+      total: Number(bill.total_amount),
+    });
+  } catch (error) {
+    if (inserted.length) {
+      await conn.query('DELETE FROM APPT_TREATMENT WHERE appt_treatment_id IN (?)', [inserted]).catch(() => {});
+    }
+    console.error('Error completing and billing appointment:', error.message);
+    res.status(500).json({ success: false, message: 'Could not complete and bill the appointment. Please try again.' });
+  } finally {
+    conn.release();
+  }
+}
 
 // Appointment availability for patient self-service booking.
 // Patients may choose ANY branch. Doctors are filtered to the selected branch.
@@ -904,6 +990,74 @@ app.post('/api/patient/invoices/:id/pay', requirePatient, async (req, res) => {
   }
 });
 
+// POST /api/patient/invoices/:id/claim
+// The signed-in patient claims insurance on one of their own bills.
+// sp_lodge_insurance_claim (04_procedures.sql) works out the amount with
+// fn_insurance_coverage (claimable treatments x coverage %, capped at the
+// ceiling), records the claim as approved, and re-settles the bill with
+// fn_outstanding_balance, all in one transaction. (Demo: claims are approved
+// straight away; a real insurer would review them first.)
+app.post('/api/patient/invoices/:id/claim', requirePatient, async (req, res) => {
+  if (!/^[1-9]\d*$/.test(req.params.id)) {
+    return res.status(400).json({ success: false, message: 'Invalid invoice ID.' });
+  }
+  const conn = await pool.getConnection();
+  try {
+    const [[bill]] = await conn.query(
+      `SELECT i.invoice_id,
+              fn_insurance_coverage(i.invoice_id)  AS cover,
+              fn_outstanding_balance(i.invoice_id) AS owed,
+              EXISTS (SELECT 1 FROM INSURANCE_CLAIM c WHERE c.invoice_id = i.invoice_id) AS claimed,
+              (SELECT p.policy_id
+               FROM INSURANCE_POLICY p
+               WHERE p.patient_id = a.patient_id
+                 AND a.appointment_date BETWEEN p.valid_from AND p.valid_to
+               ORDER BY p.coverage_percentage DESC
+               LIMIT 1) AS policy_id
+       FROM INVOICE i
+       JOIN APPOINTMENT a ON a.appointment_id = i.appointment_id
+       WHERE i.invoice_id = ? AND a.patient_id = ?`,
+      [req.params.id, req.patientId]
+    );
+    if (!bill) {
+      return res.status(404).json({ success: false, message: 'Bill not found.' });
+    }
+    const cover = Number(bill.cover);
+    const owed = Number(bill.owed);
+    if (bill.claimed) {
+      return res.status(409).json({ success: false, message: 'Insurance has already been claimed for this bill.' });
+    }
+    if (!bill.policy_id) {
+      return res.status(409).json({ success: false, message: 'You had no valid insurance policy on the date of this visit.' });
+    }
+    if (cover <= 0) {
+      return res.status(409).json({ success: false, message: 'None of the treatments on this bill are covered by insurance.' });
+    }
+    if (cover > owed) {
+      return res.status(409).json({ success: false, message: 'Insurance would cover more than you still owe. Please ask at the front desk.' });
+    }
+
+    await conn.query('CALL sp_lodge_insurance_claim(?, ?, @claim_id)', [bill.invoice_id, bill.policy_id]);
+    const [[after]] = await conn.query(
+      `SELECT @claim_id AS claim_id, fn_outstanding_balance(?) AS outstanding,
+              (SELECT approved_amount FROM INSURANCE_CLAIM WHERE claim_id = @claim_id) AS approved`,
+      [bill.invoice_id]
+    );
+    res.json({
+      success: true,
+      message: 'Insurance claim approved.',
+      claimId: after.claim_id,
+      approved: Number(after.approved),
+      outstanding: Number(after.outstanding),
+    });
+  } catch (error) {
+    console.error('Insurance claim failed:', error.message);
+    res.status(500).json({ success: false, message: 'Could not lodge the insurance claim. Please try again.' });
+  } finally {
+    conn.release();
+  }
+});
+
 app.get('/api/patients/:id/dashboard', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1037,20 +1191,27 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
     }));
 
     // 4. Billing & invoices
+    // The money columns come from the functions in 03_functions.sql:
+    //   fn_treatment_charges   -> what the visit's treatments cost
+    //   fn_outstanding_balance -> total - payments - approved insurance (what is still owed)
+    //   fn_insurance_coverage  -> how much the patient's policy could cover
     const [invoiceRows] = await pool.query(`
-      SELECT 
+      SELECT
         i.invoice_id,
         i.total_amount,
         i.paid_amount,
-        i.balance_due,
         a.appointment_date,
+        fn_treatment_charges(i.appointment_id) AS charges,
+        fn_outstanding_balance(i.invoice_id)   AS outstanding,
+        fn_insurance_coverage(i.invoice_id)    AS insurance_estimate,
+        EXISTS (SELECT 1 FROM INSURANCE_CLAIM c WHERE c.invoice_id = i.invoice_id) AS claimed,
         COALESCE(GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', '), '') AS treatments
       FROM INVOICE i
       JOIN APPOINTMENT a ON i.appointment_id = a.appointment_id
       LEFT JOIN APPT_TREATMENT at ON at.appointment_id = a.appointment_id
       LEFT JOIN TREATMENT t ON t.treatment_id = at.treatment_id
       WHERE a.patient_id = ?
-      GROUP BY i.invoice_id, i.total_amount, i.paid_amount, i.balance_due, a.appointment_date
+      GROUP BY i.invoice_id, i.total_amount, i.paid_amount, a.appointment_date
       ORDER BY a.appointment_date DESC;
     `, [id]);
 
@@ -1061,7 +1222,7 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
     const formattedBills = invoiceRows.map((inv) => {
       const total = Number(inv.total_amount) || 0;
       const paid = Number(inv.paid_amount) || 0;
-      const due = Number(inv.balance_due) || 0;
+      const due = Number(inv.outstanding) || 0;
       totalBilled += total;
       totalPaid += paid;
       totalOutstanding += due;
@@ -1071,6 +1232,14 @@ app.get('/api/patients/:id/dashboard', async (req, res) => {
         date: inv.appointment_date,
         treatment: inv.treatments || 'No treatment details recorded',
         amount: total,
+        charges: Number(inv.charges) || 0,
+        paid,
+        outstanding: due,
+        insuranceEstimate: Number(inv.insurance_estimate) || 0,
+        claimed: Boolean(inv.claimed),
+        // Same rules as POST /api/patient/invoices/:id/claim (fn_insurance_coverage
+        // is 0 when there is no valid policy or nothing claimable).
+        canClaim: !inv.claimed && Number(inv.insurance_estimate) > 0 && Number(inv.insurance_estimate) <= due,
         status: due <= 0 ? 'Paid' : paid > 0 ? 'Partly paid' : 'Unpaid',
       };
     });

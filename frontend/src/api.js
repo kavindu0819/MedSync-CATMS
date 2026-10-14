@@ -115,9 +115,30 @@ export async function fetchDoctorAppointments(scope) {
   return response.data.appointments;
 }
 
+// Patient only: pay (part of) one of their own bills. method: "Card" | "Bank Transfer".
+// server.js runs it through sp_record_payment, which refuses overpaying.
+export async function payInvoice(invoiceId, amount, method) {
+  const response = await api.post(`/patient/invoices/${invoiceId}/pay`, { amount, method });
+  return response.data;
+}
+
+// Patient only: claim insurance on one of their own bills (sp_lodge_insurance_claim).
+export async function claimInsurance(invoiceId) {
+  const response = await api.post(`/patient/invoices/${invoiceId}/claim`);
+  return response.data;
+}
+
 // Doctor only: mark one of their own started, Scheduled appointments Completed.
-export async function completeDoctorAppointment(appointmentId) {
-  const response = await api.patch(`/doctor/appointments/${appointmentId}/complete`);
+// With treatmentIds the visit is also billed (sp_complete_appointment_and_bill).
+export async function completeDoctorAppointment(appointmentId, treatmentIds) {
+  const body = treatmentIds ? { treatmentIds } : undefined;
+  const response = await api.patch(`/doctor/appointments/${appointmentId}/complete`, body);
+  return response.data;
+}
+
+// Doctor only: the treatment catalogue to bill a visit from.
+export async function fetchTreatments() {
+  const response = await api.get("/treatments");
   return response.data;
 }
 
