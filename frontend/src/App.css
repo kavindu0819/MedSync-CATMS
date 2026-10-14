@@ -119,6 +119,9 @@ button, input, select { font: inherit; }
 }
 .app-shell .summary-card:nth-child(n+5) { grid-column: span 4; }
 .app-shell .summary-grid--three .summary-card { grid-column: span 4; }
+.app-shell .summary-grid--four .summary-card { grid-column: span 3; }
+/* Money cards in the 4-wide rows: keep "LKR 71,105,350" on one line. */
+.app-shell .summary-grid--four .summary-card:nth-child(n+5) .summary-text strong { font-size: clamp(15px, 1.2vw, 20px); white-space: nowrap; }
 .app-shell .tone-pink { --tone-bg: #fde4e8; --tone-fg: #f2557a; }
 .app-shell .tone-peach { --tone-bg: #ffe9e0; --tone-fg: #ff7d54; }
 .app-shell .tone-mint { --tone-bg: #dcf6e5; --tone-fg: #2bbd5a; }
@@ -213,6 +216,7 @@ button, input, select { font: inherit; }
 @media (max-width: 1250px) {
   .app-shell .summary-card { grid-column: span 6; }
   .app-shell .summary-card:nth-child(n+5), .app-shell .summary-grid--three .summary-card { grid-column: span 4; }
+  .app-shell .summary-grid--four .summary-card { grid-column: span 6; }
 }
 @media (max-width: 1100px) {
   .app-shell .sidebar { flex-basis: 220px; width: 220px; }
@@ -229,7 +233,7 @@ button, input, select { font: inherit; }
   .app-shell .sidebar-account .logout-button { width: auto; }
   .app-shell .main-content { padding: 24px 16px; }
   .app-shell .summary-grid { padding: 14px; gap: 12px; }
-  .app-shell .summary-card, .app-shell .summary-card:nth-child(n+5), .app-shell .summary-grid--three .summary-card { grid-column: span 12; }
+  .app-shell .summary-card, .app-shell .summary-card:nth-child(n+5), .app-shell .summary-grid--three .summary-card, .app-shell .summary-grid--four .summary-card { grid-column: span 12; }
   .app-shell .panel { padding: 18px; }
   .app-shell .filter-bar label { flex: 1 1 150px; }
   .app-shell .patient-form__wide { grid-column: auto; }
