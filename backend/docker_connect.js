@@ -11,6 +11,9 @@ const dbConfig = {
   // Dates. Without this mysql2 builds the Date at local midnight and JSON
   // serialises it as UTC, so every date arrives shifted back by 5h30m.
   dateStrings: true,
+  // Azure Database for MySQL only accepts encrypted (TLS) connections.
+  // Set DB_SSL=true in Azure's settings; local Docker leaves it unset.
+  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: true } : undefined,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
