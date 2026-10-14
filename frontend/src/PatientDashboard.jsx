@@ -44,7 +44,7 @@ const NAV = [
 
 const lkr = (n) => `LKR ${Number(n).toLocaleString("en-US")}`;
 const formatDate = (value) => {
-  if (!value) return "—";
+  if (!value) return "-";
   const [year, month, day] = String(value).slice(0, 10).split("-").map(Number);
   return new Date(year, month - 1, day).toLocaleDateString("en-GB", {
     day: "2-digit",
@@ -218,7 +218,7 @@ function BookingDialog({ patientId, onClose, onBooked }) {
               <option value="">{loadingDoctors ? "Loading doctors…" : branchId ? "Select a doctor" : "Select a branch first"}</option>
               {doctors.map((doctor) => (
                 <option key={doctor.doctor_id} value={doctor.doctor_id}>
-                  Dr. {doctor.doctor_name} — {doctor.specialties}
+                  Dr. {doctor.doctor_name} ({doctor.specialties})
                 </option>
               ))}
             </select>
